@@ -33,6 +33,10 @@
   .empty h2{font-size:18px;margin-bottom:8px;color:#94a3b8}
   .live-dot{display:inline-block;width:8px;height:8px;background:#10b981;border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
   @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+ .payments{margin-top:12px;padding:10px;background:rgba(255,255,255,0.04);border-radius:8px}
+.payments-title{font-size:13px;color:#94a3b8;margin-bottom:6px}
+.payment-row{display:flex;justify-content:space-between;font-size:14px;padding:3px 0;color:#e2e8f0}
+
 </style>
 </head>
 <body>
@@ -129,8 +133,22 @@ function render(data){
           <div class="stat"><div class="stat-label">訂單數</div><div class="stat-value">${today.orderCount||0}</div></div>
           <div class="stat"><div class="stat-label">客單價</div><div class="stat-value">${fmt(today.avgTicket)}</div></div>
         </div>
-        ${sessionHtml}
+        const payments = today.payments || {};
+const paymentEntries = Object.entries(payments);
+const paymentHtml = paymentEntries.length > 0 ? `
+  <div class="payments">
+    <div class="payments-title">💰 支付方式分項</div>
+    ${paymentEntries.map(([name, info]) => `
+      <div class="payment-row">
+        <span>${name}</span>
+        <span>${fmt(info.amount)}（${info.count} 單）</span>
       </div>
+    `).join('')}
+  </div>
+` : '';
+
+${paymentHtml}${sessionHtml}
+</div>
     `;
   }).join("");
 }
