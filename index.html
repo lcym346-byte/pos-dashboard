@@ -68,7 +68,7 @@ const db = getDatabase(app);
 const dashRef = ref(db, "dashboards");
 
 const ONLINE_THRESHOLD = 90 * 1000; // 90 秒內有心跳算線上
-const fmt = n => "$" + (Number(n)||0).toLocaleString();
+const fmt = n => (Number(n)||0).toLocaleString() + " 元";
 const pad = n => String(n).padStart(2,"0");
 function timeAgo(iso){
   if(!iso) return "未知";
