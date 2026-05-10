@@ -12,8 +12,8 @@
   .meta{font-size:14px;color:#94a3b8}
   .live-dot{display:inline-block;width:8px;height:8px;background:#10b981;border-radius:50%;margin-right:6px;animation:blink 1.5s infinite}
   @keyframes blink{50%{opacity:0.3}}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;max-width:1400px;margin:0 auto}
-.card{background:#1e293b;border-radius:10px;padding:12px;border:2px solid transparent;font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;max-width:1400px;margin:0 auto}
+  .card{background:#1e293b;border-radius:10px;padding:12px;border:2px solid transparent;font-size:13px}
   .card.online{border-color:#10b981}
   .card.offline{border-color:#ef4444}
   .card-head{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px}
@@ -35,22 +35,67 @@
   .no-session{text-align:center;color:#94a3b8;font-size:14px}
   .empty{text-align:center;padding:60px 20px;color:#94a3b8}
   .empty h2{margin-bottom:10px}
+
+  /* === 登入相關樣式 === */
+  .auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .auth-box{max-width:420px;width:100%;background:#1e293b;border-radius:16px;padding:40px 32px;text-align:center;border:1px solid #334155}
+  .auth-icon{font-size:56px;margin-bottom:16px}
+  .auth-title{font-size:24px;font-weight:bold;margin-bottom:8px}
+  .auth-subtitle{color:#94a3b8;margin-bottom:28px;line-height:1.6}
+  .google-btn{display:inline-flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#fff;color:#1f2937;border:none;padding:14px 20px;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;transition:background 0.2s}
+  .google-btn:hover{background:#f3f4f6}
+  .google-btn:disabled{opacity:0.6;cursor:wait}
+  .google-icon{width:20px;height:20px}
+  .auth-error{background:rgba(239,68,68,0.1);border:1px solid #ef4444;color:#fca5a5;border-radius:10px;padding:14px;margin-top:16px;font-size:14px;text-align:left;line-height:1.6}
+  .auth-warn{background:rgba(251,191,36,0.1);border:1px solid #fbbf24;color:#fbbf24;border-radius:10px;padding:14px;margin-top:16px;font-size:14px}
+  .logout-btn{background:transparent;color:#94a3b8;border:1px solid #334155;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:14px;margin-top:16px}
+  .logout-btn:hover{background:#334155;color:#e2e8f0}
+  .user-pill{display:inline-flex;align-items:center;gap:8px;background:#1e293b;border:1px solid #334155;border-radius:999px;padding:6px 12px;font-size:13px;color:#e2e8f0}
+  .user-pill .user-email{color:#94a3b8}
+  .user-pill button{background:transparent;color:#94a3b8;border:none;cursor:pointer;font-size:13px;padding:0 4px}
+  .user-pill button:hover{color:#ef4444}
 </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>📊 多店即時看板</h1>
-    <div class="meta"><span class="live-dot"></span>即時連線中 · <span id="updateTime">--</span></div>
+
+<!-- 登入畫面 -->
+<div id="loginScreen" class="auth-screen" style="display:none">
+  <div class="auth-box">
+    <div class="auth-icon">📊</div>
+    <div class="auth-title">多店即時看板</div>
+    <div class="auth-subtitle">請使用授權的 Google 帳號登入<br>以檢視所有店鋪營運資料</div>
+    <button id="googleSignInBtn" class="google-btn">
+      <svg class="google-icon" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
+      <span id="googleSignInLabel">使用 Google 登入</span>
+    </button>
+    <div id="authError" style="display:none"></div>
   </div>
-  <div class="meta" id="storeCount">店鋪數：0</div>
-</header>
-<div id="grid" class="grid"></div>
-<div id="empty" class="empty" style="display:none"><h2>尚無店鋪資料</h2><p>請確認 POS 端已設定 storeId 並運行</p></div>
+</div>
+
+<!-- 看板主畫面 -->
+<div id="dashboardScreen" style="display:none">
+  <header>
+    <div>
+      <h1>📊 多店即時看板</h1>
+      <div class="meta"><span class="live-dot"></span>即時連線中 · <span id="updateTime">--</span></div>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="meta" id="storeCount">店鋪數：0</div>
+      <div class="user-pill">
+        <span>👤</span>
+        <span class="user-email" id="currentUserEmail">--</span>
+        <button id="logoutBtn" title="登出">登出</button>
+      </div>
+    </div>
+  </header>
+  <div id="grid" class="grid"></div>
+  <div id="empty" class="empty" style="display:none"><h2>尚無店鋪資料</h2><p>請確認 POS 端已設定 storeId 並運行</p></div>
+</div>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyDbwfDz_dyjNLjqQjj5zELlmQDmKt1lJOI",
@@ -64,21 +109,146 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
+const auth = getAuth(app);
+const provider = new GoogleAuthProvider();
 const dashRef = ref(db, "dashboards");
-
 const ONLINE_THRESHOLD = 90 * 1000;
 
+let dashboardListenerStarted = false;
+
+// === DOM 工具 ===
+const $ = id => document.getElementById(id);
+function showLogin(){ $('loginScreen').style.display='flex'; $('dashboardScreen').style.display='none'; }
+function showDashboard(){ $('loginScreen').style.display='none'; $('dashboardScreen').style.display='block'; }
+function showAuthError(html){
+  const el = $('authError');
+  el.className = 'auth-error';
+  el.innerHTML = html;
+  el.style.display = 'block';
+}
+function clearAuthError(){ $('authError').style.display='none'; }
+
+// === Google 登入 ===
+$('googleSignInBtn').addEventListener('click', async ()=>{
+  const btn = $('googleSignInBtn');
+  const label = $('googleSignInLabel');
+  btn.disabled = true;
+  label.textContent = '登入中...';
+  clearAuthError();
+  try{
+    await signInWithPopup(auth, provider);
+    // 後續流程交給 onAuthStateChanged
+  }catch(err){
+    btn.disabled = false;
+    label.textContent = '使用 Google 登入';
+    if(err.code === 'auth/popup-closed-by-user'){
+      showAuthError('🛈 您取消了登入。請再試一次。');
+    } else if(err.code === 'auth/popup-blocked'){
+      showAuthError('⚠️ 瀏覽器封鎖了登入彈窗，請允許彈窗後再試。');
+    } else {
+      showAuthError('❌ 登入失敗：<br>' + (err.message || err.code));
+    }
+  }
+});
+
+// === 登出 ===
+$('logoutBtn').addEventListener('click', async ()=>{
+  if(!confirm('確定要登出嗎？')) return;
+  await signOut(auth);
+});
+
+// === 白名單檢查 ===
+async function checkWhitelist(email){
+  const lower = String(email||'').trim().toLowerCase();
+  if(!lower) return false;
+  try{
+    const snapshot = await get(ref(db, 'dashboardAccess/emails'));
+    const data = snapshot.val();
+    if(!data) return false;
+    return Object.values(data).some(row =>
+      String(row?.email||'').trim().toLowerCase() === lower
+    );
+  }catch(err){
+    console.error('讀取白名單失敗：', err);
+    throw err;
+  }
+}
+
+// === 認證狀態變化 ===
+onAuthStateChanged(auth, async user => {
+  const btn = $('googleSignInBtn');
+  const label = $('googleSignInLabel');
+
+  if(!user){
+    // 未登入 → 顯示登入畫面
+    showLogin();
+    btn.disabled = false;
+    label.textContent = '使用 Google 登入';
+    clearAuthError();
+    return;
+  }
+
+  // 已登入 → 檢查白名單
+  showLogin();   // 先停在登入畫面顯示檢查結果
+  btn.disabled = true;
+  label.textContent = '檢查權限中...';
+
+  try{
+    const allowed = await checkWhitelist(user.email);
+    if(!allowed){
+      // 不在白名單 → 顯示警告 + 登出按鈕
+      showAuthError(`
+        <strong>🚫 您沒有看板權限</strong><br><br>
+        登入帳號：<code style="color:#fbbf24">${user.email}</code><br><br>
+        此 Google 帳號不在授權清單內，<br>
+        請聯絡管理員加入後再使用。
+        <div style="text-align:center;margin-top:14px">
+          <button id="unauthLogoutBtn" class="logout-btn">登出此帳號</button>
+        </div>
+      `);
+      btn.style.display = 'none';
+      document.getElementById('unauthLogoutBtn').onclick = async ()=>{
+        await signOut(auth);
+        btn.style.display = '';
+      };
+      return;
+    }
+
+    // 通過白名單 → 顯示看板
+    $('currentUserEmail').textContent = user.email;
+    showDashboard();
+    btn.disabled = false;
+    label.textContent = '使用 Google 登入';
+    clearAuthError();
+    startDashboardListener();
+  }catch(err){
+    showAuthError(`
+      ❌ 權限檢查失敗：<br>${err.message || err.code}<br><br>
+      請確認 Firebase 規則允許讀取 <code>dashboardAccess/emails</code>。
+      <div style="text-align:center;margin-top:14px">
+        <button id="errLogoutBtn" class="logout-btn">登出</button>
+      </div>
+    `);
+    btn.style.display = 'none';
+    document.getElementById('errLogoutBtn').onclick = async ()=>{
+      await signOut(auth);
+      btn.style.display = '';
+    };
+  }
+});
+
+// === 看板資料載入（原本邏輯，保持不變）===
 const fmt = n => (Number(n)||0).toLocaleString() + " 元";
 const pad = n => String(n).padStart(2,"0");
 function timeAgo(iso){if(!iso) return "未知"; const diff=Date.now()-new Date(iso).getTime(); if(diff<60000) return Math.floor(diff/1000)+" 秒前"; if(diff<3600000) return Math.floor(diff/60000)+" 分鐘前"; if(diff<86400000) return Math.floor(diff/3600000)+" 小時前"; return Math.floor(diff/86400000)+" 天前";}
 function fmtTime(iso){if(!iso) return "--"; const d=new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`;}
 
 function render(data){
-  const grid=document.getElementById("grid");
-  const empty=document.getElementById("empty");
+  const grid=$("grid");
+  const empty=$("empty");
   const stores=data?Object.entries(data):[];
-  document.getElementById("storeCount").textContent="店鋪數："+stores.length;
-  document.getElementById("updateTime").textContent=new Date().toLocaleTimeString("zh-TW");
+  $("storeCount").textContent="店鋪數："+stores.length;
+  $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW");
   if(stores.length===0){grid.innerHTML=""; empty.style.display="block"; return;}
   empty.style.display="none";
   grid.innerHTML = stores.map(([storeId,d])=>{
@@ -130,9 +300,17 @@ function render(data){
   }).join("");
 }
 
-onValue(dashRef, snap=>render(snap.val()), err=>{console.error("Firebase 讀取失敗",err); document.getElementById("empty").innerHTML="<h2>連線失敗</h2><p>"+err.message+"</p>"; document.getElementById("empty").style.display="block";});
-
-setInterval(()=>{ document.getElementById("updateTime").textContent=new Date().toLocaleTimeString("zh-TW"); },1000);
+function startDashboardListener(){
+  if(dashboardListenerStarted) return;
+  dashboardListenerStarted = true;
+  onValue(dashRef, snap=>render(snap.val()), err=>{
+    console.error("Firebase 讀取失敗",err);
+    const empty=$("empty");
+    empty.innerHTML="<h2>連線失敗</h2><p>"+err.message+"</p>";
+    empty.style.display="block";
+  });
+  setInterval(()=>{ $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW"); },1000);
+}
 </script>
 </body>
 </html>
