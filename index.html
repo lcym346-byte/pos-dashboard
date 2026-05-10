@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>多店即時看板</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Microsoft JhengHei",sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:20px}
+  header{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px;flex-wrap:wrap;gap:12px}
+  h1{font-size:24px;color:#f1f5f9}
+  .meta{font-size:13px;color:#94a3b8}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:18px}
+  .card{background:#1e293b;border-radius:14px;padding:20px;border:2px solid #334155;transition:.2s}
+  .card.online{border-color:#10b981}
+  .card.offline{border-color:#ef4444;opacity:.75}
+  .card-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid #334155}
+  .store-name{font-size:20px;font-weight:700;color:#f1f5f9}
+  .status{font-size:12px;padding:4px 10px;border-radius:12px;font-weight:600}
+  .status.online{background:#065f46;color:#6ee7b7}
+  .status.offline{background:#7f1d1d;color:#fca5a5}
+  .last-seen{font-size:11px;color:#64748b;margin-top:4px}
+  .stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin:14px 0}
+  .stat{background:#0f172a;padding:10px;border-radius:8px;text-align:center}
+  .stat-label{font-size:11px;color:#94a3b8;margin-bottom:4px}
+  .stat-value{font-size:18px;font-weight:700;color:#f1f5f9}
+  .session{background:#0f172a;padding:12px;border-radius:8px;margin-top:10px}
+  .session-title{font-size:12px;color:#94a3b8;margin-bottom:6px;display:flex;justify-content:space-between}
+  .session-row{font-size:13px;color:#e2e8f0;display:flex;justify-content:space-between;padding:3px 0}
+  .session-row span:first-child{color:#94a3b8}
+  .no-session{font-size:13px;color:#64748b;text-align:center;padding:8px}
+  .empty{text-align:center;padding:60px 20px;color:#64748b}
+  .empty h2{font-size:18px;margin-bottom:8px;color:#94a3b8}
+  .live-dot{display:inline-block;width:8px;height:8px;background:#10b981;border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>📊 多店即時看板</h1>
+    <div class="meta"><span class="live-dot"></span>即時連線中 · <span id="updateTime">--</span></div>
+  </div>
+  <div class="meta" id="storeCount">店鋪數：0</div>
+</header>
+<div id="grid" class="grid"></div>
+<div id="empty" class="empty" style="display:none">
+  <h2>尚無店鋪資料</h2>
+  <p>請確認 POS 端已設定 storeId 並運行</p>
+</div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, onValue } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDbwfDz_dyjNLjqQjj5zELlmQDmKt1lJOI",
+  authDomain: "webpos-1f626.firebaseapp.com",
+  databaseURL: "https://webpos-1f626-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "webpos-1f626",
+  storageBucket: "webpos-1f626.appspot.com",
+  messagingSenderId: "445432162673",
+  appId: "1:445432162673:web:abc"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+const dashRef = ref(db, "dashboards");
+
+const ONLINE_THRESHOLD = 90 * 1000; // 90 秒內有心跳算線上
+const fmt = n => "$" + (Number(n)||0).toLocaleString();
+const pad = n => String(n).padStart(2,"0");
+function timeAgo(iso){
+  if(!iso) return "未知";
+  const diff = Date.now() - new Date(iso).getTime();
+  if(diff < 60000) return Math.floor(diff/1000) + " 秒前";
+  if(diff < 3600000) return Math.floor(diff/60000) + " 分鐘前";
+  if(diff < 86400000) return Math.floor(diff/3600000) + " 小時前";
+  return Math.floor(diff/86400000) + " 天前";
+}
+function fmtTime(iso){
+  if(!iso) return "--";
+  const d = new Date(iso);
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function render(data){
+  const grid = document.getElementById("grid");
+  const empty = document.getElementById("empty");
+  const stores = data ? Object.entries(data) : [];
+  document.getElementById("storeCount").textContent = "店鋪數：" + stores.length;
+  document.getElementById("updateTime").textContent = new Date().toLocaleTimeString("zh-TW");
+
+  if(stores.length === 0){
+    grid.innerHTML = "";
+    empty.style.display = "block";
+    return;
+  }
+  empty.style.display = "none";
+
+  grid.innerHTML = stores.map(([storeId, d]) => {
+    const hb = d.heartbeat || {};
+    const today = d.today || {};
+    const session = d.session || null;
+    const lastSeen = hb.lastSeenAt;
+    const isOnline = lastSeen && (Date.now() - new Date(lastSeen).getTime() < ONLINE_THRESHOLD);
+    const name = hb.storeName || storeId;
+
+    const sessionHtml = session ? `
+      <div class="session">
+        <div class="session-title"><span>🟢 目前班次</span><span>${fmtTime(session.startedAt)} 開班</span></div>
+        <div class="session-row"><span>值班人員</span><span>${session.staffName || session.staffId || "--"}</span></div>
+        <div class="session-row"><span>開班現金</span><span>${fmt(session.openingCash)}</span></div>
+        <div class="session-row"><span>目前現金</span><span>${fmt(session.currentCash)}</span></div>
+      </div>
+    ` : `<div class="session"><div class="no-session">⚪ 目前無人值班</div></div>`;
+
+    return `
+      <div class="card ${isOnline?"online":"offline"}">
+        <div class="card-head">
+          <div>
+            <div class="store-name">${name}</div>
+            <div class="last-seen">最後心跳：${timeAgo(lastSeen)}</div>
+          </div>
+          <span class="status ${isOnline?"online":"offline"}">${isOnline?"● 線上":"● 離線"}</span>
+        </div>
+        <div class="stats">
+          <div class="stat"><div class="stat-label">今日營業額</div><div class="stat-value">${fmt(today.salesTotal)}</div></div>
+          <div class="stat"><div class="stat-label">訂單數</div><div class="stat-value">${today.orderCount||0}</div></div>
+          <div class="stat"><div class="stat-label">客單價</div><div class="stat-value">${fmt(today.avgTicket)}</div></div>
+        </div>
+        ${sessionHtml}
+      </div>
+    `;
+  }).join("");
+}
+
+onValue(dashRef, snap => render(snap.val()), err => {
+  console.error("Firebase 讀取失敗", err);
+  document.getElementById("empty").innerHTML = "<h2>連線失敗</h2><p>" + err.message + "</p>";
+  document.getElementById("empty").style.display = "block";
+});
+
+// 每 30 秒重整一次線上/離線判斷
+setInterval(() => {
+  const grid = document.getElementById("grid");
+  if(grid.children.length > 0){
+    onValue(dashRef, snap => render(snap.val()), { onlyOnce: true });
+  }
+}, 30000);
+</script>
+</body>
+</html>
