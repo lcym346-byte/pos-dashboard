@@ -158,19 +158,17 @@ $('logoutBtn').addEventListener('click', async ()=>{
   await signOut(auth);
 });
 
-// === 白名單檢查 ===
-async function checkWhitelist(email){
-  const lower = String(email||'').trim().toLowerCase();
-  if(!lower) return false;
+// === 權限檢查（改用 staff/{uid}，與 POS 共用白名單）===
+async function checkWhitelist(uid){
+  if(!uid) return false;
   try{
-    const snapshot = await get(ref(db, 'dashboardAccess/emails'));
+    const snapshot = await get(ref(db, `staff/${uid}`));
     const data = snapshot.val();
     if(!data) return false;
-    return Object.values(data).some(row =>
-      String(row?.email||'').trim().toLowerCase() === lower
-    );
+    const role = String(data.role || '').trim();
+    return role === 'admin' || role === 'staff';
   }catch(err){
-    console.error('讀取白名單失敗：', err);
+    console.error('讀取 staff 失敗：', err);
     throw err;
   }
 }
@@ -189,24 +187,27 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  // 取得真實 email（避開 Email enumeration protection 把 user.email 隱藏的情況）
-  const realEmail =
+  // email 在某些 Firebase 設定下會被隱藏，所以僅做顯示用
+  const displayEmail =
     user.email ||
     (user.providerData && user.providerData[0] && user.providerData[0].email) ||
-    '';
+    user.displayName ||
+    user.uid;
 
-  // 已登入 → 檢查白名單
-  showLogin();   // 先停在登入畫面顯示檢查結果
+  // 已登入 → 檢查 staff 權限
+  showLogin();
   btn.disabled = true;
   label.textContent = '檢查權限中...';
 
   try{
-    const allowed = await checkWhitelist(realEmail);
+    // 用 uid 比對 staff/{uid}（與 POS 共用白名單）
+    const allowed = await checkWhitelist(user.uid);
     if(!allowed){
       // 不在白名單 → 顯示警告 + 登出按鈕
       showAuthError(`
         <strong>🚫 您沒有看板權限</strong><br><br>
-        登入帳號：<code style="color:#fbbf24">${realEmail || '(無法取得 email)'}</code><br><br>
+        登入帳號：<code style="color:#fbbf24">${displayEmail}</code><br>
+        UID：<code style="color:#94a3b8;font-size:11px">${user.uid}</code><br><br>
         此 Google 帳號不在授權清單內，<br>
         請聯絡管理員加入後再使用。
         <div style="text-align:center;margin-top:14px">
@@ -221,8 +222,8 @@ onAuthStateChanged(auth, async user => {
       return;
     }
 
-    // 通過白名單 → 顯示看板
-    $('currentUserEmail').textContent = realEmail;
+    // 通過權限 → 顯示看板
+    $('currentUserEmail').textContent = displayEmail;
     showDashboard();
     btn.disabled = false;
     label.textContent = '使用 Google 登入';
@@ -231,7 +232,7 @@ onAuthStateChanged(auth, async user => {
   }catch(err){
     showAuthError(`
       ❌ 權限檢查失敗：<br>${err.message || err.code}<br><br>
-      請確認 Firebase 規則允許讀取 <code>dashboardAccess/emails</code>。
+      請確認 Firebase 規則允許讀取 <code>staff/{uid}</code>。
       <div style="text-align:center;margin-top:14px">
         <button id="errLogoutBtn" class="logout-btn">登出</button>
       </div>
