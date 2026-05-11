@@ -189,18 +189,24 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
+  // 取得真實 email（避開 Email enumeration protection 把 user.email 隱藏的情況）
+  const realEmail =
+    user.email ||
+    (user.providerData && user.providerData[0] && user.providerData[0].email) ||
+    '';
+
   // 已登入 → 檢查白名單
   showLogin();   // 先停在登入畫面顯示檢查結果
   btn.disabled = true;
   label.textContent = '檢查權限中...';
 
   try{
-    const allowed = await checkWhitelist(user.email);
+    const allowed = await checkWhitelist(realEmail);
     if(!allowed){
       // 不在白名單 → 顯示警告 + 登出按鈕
       showAuthError(`
         <strong>🚫 您沒有看板權限</strong><br><br>
-        登入帳號：<code style="color:#fbbf24">${user.email}</code><br><br>
+        登入帳號：<code style="color:#fbbf24">${realEmail || '(無法取得 email)'}</code><br><br>
         此 Google 帳號不在授權清單內，<br>
         請聯絡管理員加入後再使用。
         <div style="text-align:center;margin-top:14px">
@@ -216,7 +222,7 @@ onAuthStateChanged(auth, async user => {
     }
 
     // 通過白名單 → 顯示看板
-    $('currentUserEmail').textContent = user.email;
+    $('currentUserEmail').textContent = realEmail;
     showDashboard();
     btn.disabled = false;
     label.textContent = '使用 Google 登入';
