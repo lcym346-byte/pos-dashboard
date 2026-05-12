@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>多店即時看板</title>
+<title>多店即時看板 v20260608</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,"Microsoft JhengHei",sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:20px}
@@ -36,6 +36,13 @@
   .empty{text-align:center;padding:60px 20px;color:#94a3b8}
   .empty h2{margin-bottom:10px}
 
+  /* 頂部按鈕 */
+  .btn{display:inline-flex;align-items:center;gap:6px;background:#3b82f6;color:#fff;border:none;padding:8px 14px;border-radius:8px;font-size:14px;cursor:pointer;font-weight:600}
+  .btn:hover{background:#2563eb}
+  .btn.secondary{background:#334155}
+  .btn.secondary:hover{background:#475569}
+  .btn:disabled{opacity:0.5;cursor:not-allowed}
+
   /* === 登入相關樣式 === */
   .auth-screen{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
   .auth-box{max-width:420px;width:100%;background:#1e293b;border-radius:16px;padding:40px 32px;text-align:center;border:1px solid #334155}
@@ -54,6 +61,39 @@
   .user-pill .user-email{color:#94a3b8}
   .user-pill button{background:transparent;color:#94a3b8;border:none;cursor:pointer;font-size:13px;padding:0 4px}
   .user-pill button:hover{color:#ef4444}
+
+  /* === 報表 Modal === */
+  .modal-mask{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9000;display:none;align-items:center;justify-content:center;padding:20px}
+  .modal-mask.show{display:flex}
+  .modal-box{background:#1e293b;border-radius:14px;width:100%;max-width:780px;max-height:90vh;display:flex;flex-direction:column;border:1px solid #334155}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid #334155}
+  .modal-head h2{font-size:18px}
+  .modal-close{background:transparent;color:#94a3b8;border:none;font-size:24px;cursor:pointer;line-height:1}
+  .modal-body{padding:20px;overflow:auto;flex:1}
+  .modal-foot{padding:14px 20px;border-top:1px solid #334155;display:flex;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+
+  .form-row{margin-bottom:14px}
+  .form-row label{display:block;font-size:13px;color:#94a3b8;margin-bottom:6px}
+  .form-row input,.form-row select{width:100%;background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:8px 10px;border-radius:6px;font-size:14px}
+  .preset-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .preset-btn{background:#334155;color:#e2e8f0;border:none;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer}
+  .preset-btn.active{background:#3b82f6}
+  .date-pair{display:flex;gap:8px}
+  .date-pair input{flex:1}
+  .store-list{max-height:200px;overflow:auto;background:#0f172a;border:1px solid #334155;border-radius:6px;padding:8px}
+  .store-list label{display:flex;align-items:center;gap:8px;padding:4px 0;cursor:pointer;font-size:14px;color:#e2e8f0;margin:0}
+  .store-list label input{width:auto}
+  .preview-frame{width:100%;height:60vh;border:1px solid #334155;border-radius:8px;background:#fff}
+
+  /* 跨店彙總卡 */
+  .summary-card{background:linear-gradient(135deg,#1e3a8a 0%,#1e293b 100%);border-radius:12px;padding:16px;margin:0 auto 16px;max-width:1400px;border:1px solid #3b82f6;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+  .summary-cell{text-align:center}
+  .summary-label{font-size:12px;color:#94a3b8;margin-bottom:4px}
+  .summary-value{font-size:20px;font-weight:bold;color:#fff}
+  .summary-value.warn{color:#fbbf24}
+
+  /* 異常提示 */
+  .alert-badge{display:inline-block;background:#ef4444;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;margin-left:6px;font-weight:bold}
 </style>
 </head>
 <body>
@@ -79,7 +119,8 @@
       <h1>📊 多店即時看板</h1>
       <div class="meta"><span class="live-dot"></span>即時連線中 · <span id="updateTime">--</span></div>
     </div>
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <button id="openReportBtn" class="btn">📑 歷史報表</button>
       <div class="meta" id="storeCount">店鋪數：0</div>
       <div class="user-pill">
         <span>👤</span>
@@ -88,14 +129,138 @@
       </div>
     </div>
   </header>
+
+  <!-- 跨店今日彙總 -->
+  <div id="summaryCard" class="summary-card" style="display:none">
+    <div class="summary-cell">
+      <div class="summary-label">線上店鋪</div>
+      <div class="summary-value" id="sumOnline">0 / 0</div>
+    </div>
+    <div class="summary-cell">
+      <div class="summary-label">今日總營業額</div>
+      <div class="summary-value" id="sumSales">$0</div>
+    </div>
+    <div class="summary-cell">
+      <div class="summary-label">今日總訂單</div>
+      <div class="summary-value" id="sumOrders">0</div>
+    </div>
+    <div class="summary-cell">
+      <div class="summary-label">平均客單</div>
+      <div class="summary-value" id="sumAvg">$0</div>
+    </div>
+    <div class="summary-cell">
+      <div class="summary-label">異常店鋪</div>
+      <div class="summary-value warn" id="sumAlert">0</div>
+    </div>
+  </div>
+
   <div id="grid" class="grid"></div>
   <div id="empty" class="empty" style="display:none"><h2>尚無店鋪資料</h2><p>請確認 POS 端已設定 storeId 並運行</p></div>
+</div>
+
+<!-- ============================================================
+     歷史報表 Modal（Step 1：條件設定）
+     ============================================================ -->
+<div id="reportModal" class="modal-mask">
+  <div class="modal-box">
+    <div class="modal-head">
+      <h2>📑 歷史報表 — 條件設定</h2>
+      <button class="modal-close" id="closeReportBtn">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label>日期區間（最多 60 天）</label>
+        <div class="preset-row">
+          <button class="preset-btn" data-preset="today">今天</button>
+          <button class="preset-btn" data-preset="yesterday">昨天</button>
+          <button class="preset-btn active" data-preset="7d">過去 7 天</button>
+          <button class="preset-btn" data-preset="30d">過去 30 天</button>
+          <button class="preset-btn" data-preset="60d">過去 60 天</button>
+        </div>
+        <div class="date-pair">
+          <input type="date" id="dateFrom">
+          <input type="date" id="dateTo">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>店鋪選擇</label>
+        <div class="store-list" id="storeCheckList">
+          <label><input type="checkbox" id="storeAllChk" checked> <strong>全選</strong></label>
+          <div id="storeChkBody"></div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label>報表類型</label>
+        <select id="reportType">
+          <option value="summary">營業彙總（每店每日 + 跨店總計）</option>
+          <option value="session">班次明細（含現金差額）</option>
+          <option value="order">訂單明細（含品項、選項、備註）</option>
+          <option value="anomaly">異常單（拒單 + 折扣單）</option>
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>列印紙寬</label>
+        <select id="paperWidth">
+          <option value="58">58 mm（手感熱感）</option>
+          <option value="80">80 mm（Sunmi T2 內建）</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn secondary" id="cancelReportBtn">取消</button>
+      <button class="btn" id="generateReportBtn">產生報表 →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     歷史報表 Modal（Step 2：預覽 + 動作）
+     ============================================================ -->
+<div id="reportPreviewModal" class="modal-mask">
+  <div class="modal-box" style="max-width:920px">
+    <div class="modal-head">
+      <h2 id="reportPreviewTitle">報表預覽</h2>
+      <button class="modal-close" id="closePreviewBtn">×</button>
+    </div>
+    <div class="modal-body">
+      <iframe id="reportPreviewFrame" class="preview-frame"></iframe>
+    </div>
+    <div class="modal-foot">
+      <button class="btn secondary" id="backToConditionBtn">← 修改條件</button>
+      <button class="btn secondary" id="exportCsvBtn">⬇ 匯出 CSV</button>
+      <button class="btn" id="printReportBtn">🖨 列印</button>
+    </div>
+  </div>
 </div>
 
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+
+// 自家模組
+import {
+  printReport,
+  previewReport,
+  buildSummaryReport,
+  buildSessionReport,
+  buildOrderDetailReport,
+  buildAnomalyReport,
+  exportCSV,
+  summaryToCSV,
+  sessionsToCSV,
+  ordersToCSV,
+  anomalyToCSV
+} from './js/print-service-dashboard.js';
+
+import {
+  listStores,
+  loadHistory,
+  getDateRange
+} from './js/history-loader.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBOmGn6HQI0O6RU6Iu2hh44TbFoneblbyk",
@@ -114,8 +279,13 @@ const auth = getAuth(app);
 const provider = new GoogleAuthProvider();
 const dashRef = ref(db, "dashboards");
 const ONLINE_THRESHOLD = 90 * 1000;
+const ALERT_SESSION_HOURS = 14;
 
 let dashboardListenerStarted = false;
+let lastDashboardData = null;
+let lastReportData = null;       // 暫存目前產生的 report 物件（給列印按鈕用）
+let lastRawHistory = null;       // 暫存原始 loadHistory 結果（給 CSV 用）
+let lastReportType = 'summary';
 
 // === DOM 工具 ===
 const $ = id => document.getElementById(id);
@@ -128,6 +298,7 @@ function showAuthError(html){
   el.style.display = 'block';
 }
 function clearAuthError(){ $('authError').style.display='none'; }
+const money = v => '$' + (Number(v) || 0).toLocaleString('zh-TW');
 
 // === Google 登入 ===
 $('googleSignInBtn').addEventListener('click', async ()=>{
@@ -138,7 +309,6 @@ $('googleSignInBtn').addEventListener('click', async ()=>{
   clearAuthError();
   try{
     await signInWithPopup(auth, provider);
-    // 後續流程交給 onAuthStateChanged
   }catch(err){
     btn.disabled = false;
     label.textContent = '使用 Google 登入';
@@ -158,7 +328,7 @@ $('logoutBtn').addEventListener('click', async ()=>{
   await signOut(auth);
 });
 
-// === 權限檢查（改用 staff/{uid}，與 POS 共用白名單）===
+// === 權限檢查 ===
 async function checkWhitelist(uid){
   if(!uid) return false;
   try{
@@ -173,13 +343,12 @@ async function checkWhitelist(uid){
   }
 }
 
-// === 認證狀態變化 ===
+// === 認證狀態 ===
 onAuthStateChanged(auth, async user => {
   const btn = $('googleSignInBtn');
   const label = $('googleSignInLabel');
 
   if(!user){
-    // 未登入 → 顯示登入畫面
     showLogin();
     btn.disabled = false;
     label.textContent = '使用 Google 登入';
@@ -187,23 +356,19 @@ onAuthStateChanged(auth, async user => {
     return;
   }
 
-  // email 在某些 Firebase 設定下會被隱藏，所以僅做顯示用
   const displayEmail =
     user.email ||
     (user.providerData && user.providerData[0] && user.providerData[0].email) ||
     user.displayName ||
     user.uid;
 
-  // 已登入 → 檢查 staff 權限
   showLogin();
   btn.disabled = true;
   label.textContent = '檢查權限中...';
 
   try{
-    // 用 uid 比對 staff/{uid}（與 POS 共用白名單）
     const allowed = await checkWhitelist(user.uid);
     if(!allowed){
-      // 不在白名單 → 顯示警告 + 登出按鈕
       showAuthError(`
         <strong>🚫 您沒有看板權限</strong><br><br>
         登入帳號：<code style="color:#fbbf24">${displayEmail}</code><br>
@@ -222,7 +387,6 @@ onAuthStateChanged(auth, async user => {
       return;
     }
 
-    // 通過權限 → 顯示看板
     $('currentUserEmail').textContent = displayEmail;
     showDashboard();
     btn.disabled = false;
@@ -245,24 +409,76 @@ onAuthStateChanged(auth, async user => {
   }
 });
 
-// === 看板資料載入（原本邏輯，保持不變）===
+// === 看板資料載入 ===
 const fmt = n => (Number(n)||0).toLocaleString() + " 元";
 const pad = n => String(n).padStart(2,"0");
 function timeAgo(iso){if(!iso) return "未知"; const diff=Date.now()-new Date(iso).getTime(); if(diff<60000) return Math.floor(diff/1000)+" 秒前"; if(diff<3600000) return Math.floor(diff/60000)+" 分鐘前"; if(diff<86400000) return Math.floor(diff/3600000)+" 小時前"; return Math.floor(diff/86400000)+" 天前";}
 function fmtTime(iso){if(!iso) return "--"; const d=new Date(iso); return `${pad(d.getHours())}:${pad(d.getMinutes())}`;}
 
+function detectAlerts(storeId, d){
+  const alerts = [];
+  const hb = d.heartbeat || {};
+  const session = d.session;
+  const lastSeen = hb.lastSeenAt;
+  if(lastSeen){
+    const ageMin = (Date.now() - new Date(lastSeen).getTime()) / 60000;
+    if(ageMin > 5 && ageMin < 60) alerts.push('離線 ' + Math.floor(ageMin) + ' 分');
+    if(ageMin >= 60) alerts.push('離線 ' + Math.floor(ageMin/60) + ' 小時');
+  }
+  if(session && session.startedAt){
+    const hrs = (Date.now() - new Date(session.startedAt).getTime()) / 3600000;
+    if(hrs > ALERT_SESSION_HOURS) alerts.push('班次未結 ' + Math.floor(hrs) + ' 小時');
+  }
+  return alerts;
+}
+
+function renderSummary(stores){
+  if(!stores || stores.length === 0){
+    $('summaryCard').style.display = 'none';
+    return;
+  }
+  let online = 0;
+  let totalSales = 0;
+  let totalOrders = 0;
+  let alertCount = 0;
+
+  stores.forEach(([sid, d]) => {
+    const hb = d.heartbeat || {};
+    const today = d.today || {};
+    const isOnline = hb.lastSeenAt && (Date.now() - new Date(hb.lastSeenAt).getTime() < ONLINE_THRESHOLD);
+    if(isOnline) online++;
+    totalSales += Number(today.salesTotal || 0);
+    totalOrders += Number(today.orderCount || 0);
+    if(detectAlerts(sid, d).length > 0) alertCount++;
+  });
+
+  $('sumOnline').textContent = online + ' / ' + stores.length;
+  $('sumSales').textContent = money(totalSales);
+  $('sumOrders').textContent = totalOrders;
+  $('sumAvg').textContent = money(totalOrders > 0 ? Math.round(totalSales / totalOrders) : 0);
+  $('sumAlert').textContent = alertCount;
+  $('summaryCard').style.display = '';
+}
+
 function render(data){
+  lastDashboardData = data;
   const grid=$("grid");
   const empty=$("empty");
   const stores=data?Object.entries(data):[];
   $("storeCount").textContent="店鋪數："+stores.length;
   $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW");
+  renderSummary(stores);
+
   if(stores.length===0){grid.innerHTML=""; empty.style.display="block"; return;}
   empty.style.display="none";
   grid.innerHTML = stores.map(([storeId,d])=>{
     const hb=d.heartbeat||{}; const today=d.today||{}; const session=d.session||null;
     const lastSeen=hb.lastSeenAt; const isOnline=lastSeen && (Date.now()-new Date(lastSeen).getTime()<ONLINE_THRESHOLD);
     const name=hb.storeName||storeId;
+    const alerts = detectAlerts(storeId, d);
+    const alertHtml = alerts.length > 0
+      ? alerts.map(a => `<span class="alert-badge">⚠ ${a}</span>`).join('')
+      : '';
 
     const payments=today.payments||{};
     const paymentEntries=Object.entries(payments);
@@ -291,7 +507,7 @@ function render(data){
       <div class="card ${isOnline?"online":"offline"}">
         <div class="card-head">
           <div>
-            <div class="store-name">${name}</div>
+            <div class="store-name">${name}${alertHtml}</div>
             <div class="last-seen">最後心跳：${timeAgo(lastSeen)}</div>
           </div>
           <span class="status ${isOnline?"online":"offline"}">${isOnline?"● 線上":"● 離線"}</span>
@@ -319,6 +535,200 @@ function startDashboardListener(){
   });
   setInterval(()=>{ $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW"); },1000);
 }
+
+// ============================================================
+// 歷史報表 Modal
+// ============================================================
+function showModal(id){ $(id).classList.add('show'); }
+function hideModal(id){ $(id).classList.remove('show'); }
+
+// 開啟報表 Modal
+$('openReportBtn').addEventListener('click', async ()=>{
+  // 預填日期區間：過去 7 天
+  applyPreset('7d');
+  // 載入店鋪清單
+  await loadStoreCheckList();
+  showModal('reportModal');
+});
+
+$('closeReportBtn').addEventListener('click', ()=> hideModal('reportModal'));
+$('cancelReportBtn').addEventListener('click', ()=> hideModal('reportModal'));
+
+// 快捷區間
+document.querySelectorAll('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    applyPreset(btn.dataset.preset);
+  });
+});
+
+function applyPreset(preset){
+  const r = getDateRange(preset);
+  $('dateFrom').value = r.from;
+  $('dateTo').value = r.to;
+}
+
+// 手動改日期 → 取消 active
+['dateFrom', 'dateTo'].forEach(id => {
+  $(id).addEventListener('input', ()=>{
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  });
+});
+
+// 載入店鋪 checkbox 清單
+async function loadStoreCheckList(){
+  const body = $('storeChkBody');
+  body.innerHTML = '<div style="color:#94a3b8;font-size:13px">載入中...</div>';
+  try {
+    const stores = await listStores(db);
+    if(stores.length === 0){
+      body.innerHTML = '<div style="color:#fbbf24;font-size:13px">尚未偵測到任何店鋪</div>';
+      return;
+    }
+    body.innerHTML = stores.map(s => `
+      <label><input type="checkbox" class="store-chk" value="${s.storeId}" checked> ${s.storeName}（${s.storeId}）</label>
+    `).join('');
+    // 全選/取消全選
+    $('storeAllChk').onchange = (e) => {
+      const checked = e.target.checked;
+      body.querySelectorAll('.store-chk').forEach(c => c.checked = checked);
+    };
+  } catch(err){
+    body.innerHTML = '<div style="color:#ef4444;font-size:13px">載入店鋪失敗：' + (err.message || err.code) + '</div>';
+  }
+}
+
+// 產生報表
+$('generateReportBtn').addEventListener('click', async ()=>{
+  const dateFrom = $('dateFrom').value;
+  const dateTo = $('dateTo').value;
+  const reportType = $('reportType').value;
+  if(!dateFrom || !dateTo){
+    alert('請選擇日期');
+    return;
+  }
+  if(dateFrom > dateTo){
+    alert('起始日期不能晚於結束日期');
+    return;
+  }
+  // 檢查 60 天上限
+  const dayMs = 86400000;
+  const span = (new Date(dateTo) - new Date(dateFrom)) / dayMs;
+  if(span > 60){
+    alert('區間最多 60 天');
+    return;
+  }
+
+  const selectedStores = Array.from(document.querySelectorAll('.store-chk:checked')).map(c => c.value);
+  if(selectedStores.length === 0){
+    alert('請至少選擇一家店鋪');
+    return;
+  }
+
+  const btn = $('generateReportBtn');
+  btn.disabled = true;
+  btn.textContent = '撈取中...';
+
+  try {
+    const history = await loadHistory(db, selectedStores, dateFrom, dateTo);
+    lastRawHistory = history;
+    lastReportType = reportType;
+
+    let report;
+    switch(reportType){
+      case 'summary':
+        report = buildSummaryReport(history);
+        break;
+      case 'session':
+        report = buildSessionReport(history);
+        break;
+      case 'order':
+        report = buildOrderDetailReport({
+          date: history.dateFrom + ' ~ ' + history.dateTo,
+          stores: history.stores
+        });
+        break;
+      case 'anomaly':
+        report = buildAnomalyReport(history);
+        break;
+    }
+    lastReportData = report;
+
+    const paperWidth = Number($('paperWidth').value || 58);
+    const html = previewReport(report, paperWidth);
+    const frame = $('reportPreviewFrame');
+    const doc = frame.contentDocument || frame.contentWindow.document;
+    doc.open(); doc.write(html); doc.close();
+    $('reportPreviewTitle').textContent = '📑 ' + report.title + ' — ' + (report.subtitle || '');
+
+    hideModal('reportModal');
+    showModal('reportPreviewModal');
+  } catch(err){
+    console.error('產生報表失敗', err);
+    alert('產生報表失敗：' + (err.message || err.code));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '產生報表 →';
+  }
+});
+
+// 預覽 Modal 內按鈕
+$('closePreviewBtn').addEventListener('click', ()=> hideModal('reportPreviewModal'));
+$('backToConditionBtn').addEventListener('click', ()=>{
+  hideModal('reportPreviewModal');
+  showModal('reportModal');
+});
+
+$('printReportBtn').addEventListener('click', async ()=>{
+  if(!lastReportData) return;
+  const btn = $('printReportBtn');
+  btn.disabled = true;
+  btn.textContent = '列印中...';
+  try {
+    const paperWidth = Number($('paperWidth').value || 58);
+    const r = await printReport(lastReportData, { paperWidth });
+    console.log('列印結果', r);
+    if(!r.ok) alert('列印失敗，請檢查印表機連線');
+  } catch(err){
+    alert('列印失敗：' + (err.message || err.code));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🖨 列印';
+  }
+});
+
+$('exportCsvBtn').addEventListener('click', ()=>{
+  if(!lastRawHistory) return;
+  const ts = new Date().toISOString().slice(0,10);
+  let rows, filename;
+  switch(lastReportType){
+    case 'summary':
+      rows = summaryToCSV(lastRawHistory);
+      filename = `營業彙總_${lastRawHistory.dateFrom}_${lastRawHistory.dateTo}.csv`;
+      break;
+    case 'session':
+      rows = sessionsToCSV(lastRawHistory);
+      filename = `班次明細_${lastRawHistory.dateFrom}_${lastRawHistory.dateTo}.csv`;
+      break;
+    case 'order':
+      rows = ordersToCSV({ stores: lastRawHistory.stores });
+      filename = `訂單明細_${lastRawHistory.dateFrom}_${lastRawHistory.dateTo}.csv`;
+      break;
+    case 'anomaly':
+      rows = anomalyToCSV(lastRawHistory);
+      filename = `異常單_${lastRawHistory.dateFrom}_${lastRawHistory.dateTo}.csv`;
+      break;
+  }
+  exportCSV(rows, filename);
+});
+
+// 點 mask 外圍關閉
+document.querySelectorAll('.modal-mask').forEach(mask => {
+  mask.addEventListener('click', (e)=>{
+    if(e.target === mask) mask.classList.remove('show');
+  });
+});
 </script>
 </body>
 </html>
