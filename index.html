@@ -466,7 +466,7 @@ function render(data){
           <span class="status ${isOnline?"online":"offline"}">${isOnline?"● 線上":"● 離線"}</span>
         </div>
                 <div class="totals">
-          <div class="total-cell"><div class="total-label">本週累計（週一~週日）</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="week">${weekMonth.loading?'載入中...':fmt(weekMonth.week)}</div></div>
+          <div class="total-cell"><div class="total-label">本週累計</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="week">${weekMonth.loading?'載入中...':fmt(weekMonth.week)}</div></div>
           <div class="total-cell"><div class="total-label">本月累計</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="month">${weekMonth.loading?'載入中...':fmt(weekMonth.month)}</div></div>
         </div>
         <div class="stats">
