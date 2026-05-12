@@ -413,7 +413,7 @@ function detectAlerts(storeId, d){
 }
 
 
-function (data){
+function render(data){
   lastDashboardData = data;
   const grid=$("grid");
   const empty=$("empty");
@@ -606,7 +606,7 @@ async function loadWeekMonthHistorical(storeIds){
   } finally {
     weekMonthLoading = false;
     // 載入完成 → 重繪一次最新的 dashboard 資料
-    if(lastDashboardData) (lastDashboardData);
+    if(lastDashboardData) render(lastDashboardData);
   }
 }
 
