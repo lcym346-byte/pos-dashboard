@@ -413,7 +413,7 @@ function detectAlerts(storeId, d){
 }
 
 
-function render(data){
+function (data){
   lastDashboardData = data;
   const grid=$("grid");
   const empty=$("empty");
@@ -470,14 +470,30 @@ function render(data){
           <div class="total-cell"><div class="total-label">本週累計</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="week">${weekMonth.loading?'載入中...':fmt(weekMonth.week)}</div></div>
           <div class="total-cell"><div class="total-label">本月累計</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="month">${weekMonth.loading?'載入中...':fmt(weekMonth.month)}</div></div>
         </div>
-        <div class="stats">
+                <div class="stats">
           <div class="stat"><div class="stat-label">今日營業額</div><div class="stat-value">${fmt(today.salesTotal)}</div></div>
           <div class="stat"><div class="stat-label">訂單數</div><div class="stat-value">${today.orderCount||0}</div></div>
           <div class="stat"><div class="stat-label">客單價</div><div class="stat-value">${fmt(today.avgTicket)}</div></div>
         </div>
+        ${(() => {
+          const voided = today.voided || { amount: 0, count: 0 };
+          const voidedAmt = Number(voided.amount || 0);
+          const voidedCount = Number(voided.count || 0);
+          const netSales = (today.netSalesTotal !== undefined)
+            ? Number(today.netSalesTotal)
+            : (Number(today.salesTotal || 0) - voidedAmt);
+          return `
+        <div class="stats">
+          <div class="stat"><div class="stat-label">作廢/取消金額</div><div class="stat-value ${voidedAmt > 0 ? 'negative' : ''}">${voidedAmt > 0 ? '-' + fmt(voidedAmt) : fmt(0)}</div></div>
+          <div class="stat"><div class="stat-label">作廢/取消單數</div><div class="stat-value ${voidedCount > 0 ? 'negative' : ''}">${voidedCount} 單</div></div>
+          <div class="stat"><div class="stat-label">淨營業額</div><div class="stat-value">${fmt(netSales)}</div></div>
+        </div>
+          `;
+        })()}
 
         ${paymentHtml}
         ${sessionHtml}
+
       </div>
     `;
   }).join("");
@@ -590,7 +606,7 @@ async function loadWeekMonthHistorical(storeIds){
   } finally {
     weekMonthLoading = false;
     // 載入完成 → 重繪一次最新的 dashboard 資料
-    if(lastDashboardData) render(lastDashboardData);
+    if(lastDashboardData) (lastDashboardData);
   }
 }
 
