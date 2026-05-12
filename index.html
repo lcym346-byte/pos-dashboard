@@ -22,6 +22,12 @@
   .status{font-size:12px;padding:4px 8px;border-radius:6px;font-weight:bold}
   .status.online{background:rgba(16,185,129,0.2);color:#10b981}
   .status.offline{background:rgba(239,68,68,0.2);color:#ef4444}
+   .totals{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+  .total-cell{background:rgba(59,130,246,0.12);border:1px solid rgba(59,130,246,0.35);padding:8px 10px;border-radius:8px;text-align:center}
+  .total-label{font-size:11px;color:#94a3b8;margin-bottom:2px}
+  .total-value{font-size:15px;font-weight:bold;color:#e2e8f0}
+  .total-loading{color:#64748b;font-style:italic}
+
   .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px}
   .stat{background:rgba(255,255,255,0.04);padding:10px;border-radius:8px;text-align:center}
   .stat-label{font-size:12px;color:#94a3b8;margin-bottom:4px}
@@ -417,8 +423,9 @@ function render(data){
 
   if(stores.length===0){grid.innerHTML=""; empty.style.display="block"; return;}
   empty.style.display="none";
-  grid.innerHTML = stores.map(([storeId,d])=>{
+    grid.innerHTML = stores.map(([storeId,d])=>{
     const hb=d.heartbeat||{}; const today=d.today||{}; const session=d.session||null;
+    const weekMonth = getStoreWeekMonth(storeId, today);
     const lastSeen=hb.lastSeenAt; const isOnline=lastSeen && (Date.now()-new Date(lastSeen).getTime()<ONLINE_THRESHOLD);
     const name=hb.storeName||storeId;
     const alerts = detectAlerts(storeId, d);
@@ -458,22 +465,175 @@ function render(data){
           </div>
           <span class="status ${isOnline?"online":"offline"}">${isOnline?"● 線上":"● 離線"}</span>
         </div>
+                <div class="totals">
+          <div class="total-cell"><div class="total-label">本週累計（週一~週日）</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="week">${weekMonth.loading?'載入中...':fmt(weekMonth.week)}</div></div>
+          <div class="total-cell"><div class="total-label">本月累計</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="month">${weekMonth.loading?'載入中...':fmt(weekMonth.month)}</div></div>
+        </div>
         <div class="stats">
           <div class="stat"><div class="stat-label">今日營業額</div><div class="stat-value">${fmt(today.salesTotal)}</div></div>
           <div class="stat"><div class="stat-label">訂單數</div><div class="stat-value">${today.orderCount||0}</div></div>
           <div class="stat"><div class="stat-label">客單價</div><div class="stat-value">${fmt(today.avgTicket)}</div></div>
         </div>
+
         ${paymentHtml}
         ${sessionHtml}
       </div>
     `;
   }).join("");
 }
+// ============================================================
+// 本週 / 本月 累計（從 sessionHistory 撈，60 秒快取一次）
+// ============================================================
+import { ref as fbRef, get as fbGet } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+const weekMonthCache = {
+  // storeId -> { weekHistorical, monthHistorical, fetchedAt }
+};
+let weekMonthLoading = false;
+const WEEK_MONTH_TTL_MS = 60 * 1000;  // 60 秒重撈
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+function dateStr(d){ return d.getFullYear() + '-' + pad2(d.getMonth()+1) + '-' + pad2(d.getDate()); }
+
+// 取得本週週一（以週一為一週起點）
+function getWeekStart(){
+  const d = new Date();
+  d.setHours(0,0,0,0);
+  const day = d.getDay();              // 週日=0, 週一=1, ..., 週六=6
+  const diff = day === 0 ? -6 : 1 - day;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+// 取得本月 1 號
+function getMonthStart(){
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth(), 1);
+}
+
+// 列出 [from, to] 之間（含端點）所有日期字串
+function datesBetween(from, to){
+  const out = [];
+  const cur = new Date(from);
+  while(cur <= to){
+    out.push(dateStr(cur));
+    cur.setDate(cur.getDate() + 1);
+  }
+  return out;
+}
+
+// 從 sessionHistory 撈某一天的營業額（多個 session 加總，排除作廢）
+function sumDayFromSessions(dayObj){
+  if(!dayObj) return 0;
+  let total = 0;
+  Object.values(dayObj).forEach(session => {
+    if(!session || !Array.isArray(session.orders)) return;
+    session.orders.forEach(o => {
+      const status = String(o.status || '').toLowerCase();
+      if(['void','cancelled','refunded'].includes(status)) return;
+      total += Number(o.total || 0);
+    });
+  });
+  return total;
+}
+
+// 載入本週 + 本月歷史（不含今日；今日從 dashboards.today 即時加）
+async function loadWeekMonthHistorical(storeIds){
+  if(weekMonthLoading) return;
+  weekMonthLoading = true;
+  try {
+    const todayDate = new Date(); todayDate.setHours(0,0,0,0);
+    const yesterday = new Date(todayDate); yesterday.setDate(yesterday.getDate() - 1);
+    const weekStart = getWeekStart();
+    const monthStart = getMonthStart();
+
+    // 撈「月初 ~ 昨天」所有日期（涵蓋本週與本月歷史）
+    if(yesterday < monthStart){
+      // 今天就是月初，沒有歷史可撈
+      storeIds.forEach(sid => {
+        weekMonthCache[sid] = { weekHistorical: 0, monthHistorical: 0, fetchedAt: Date.now() };
+      });
+      return;
+    }
+    const allDates = datesBetween(monthStart, yesterday);
+
+    for(const sid of storeIds){
+      let weekHist = 0;
+      let monthHist = 0;
+      // 並行讀，限制併發
+      const concurrency = 8;
+      for(let i = 0; i < allDates.length; i += concurrency){
+        const chunk = allDates.slice(i, i + concurrency);
+        const snaps = await Promise.all(
+          chunk.map(d => fbGet(fbRef(db, `sessionHistory/${sid}/${d}`)).catch(() => null))
+        );
+        snaps.forEach((snap, idx) => {
+          if(!snap) return;
+          const dayObj = snap.val();
+          const daySum = sumDayFromSessions(dayObj);
+          const dStr = chunk[idx];
+          monthHist += daySum;
+          if(dStr >= dateStr(weekStart)){
+            weekHist += daySum;
+          }
+        });
+      }
+      weekMonthCache[sid] = {
+        weekHistorical: weekHist,
+        monthHistorical: monthHist,
+        fetchedAt: Date.now()
+      };
+    }
+  } catch(err){
+    console.warn('[week-month] 載入失敗', err);
+  } finally {
+    weekMonthLoading = false;
+    // 載入完成 → 重繪一次最新的 dashboard 資料
+    if(lastDashboardData) render(lastDashboardData);
+  }
+}
+
+// 給 render 用：取得單店的週/月累計（含今日）
+function getStoreWeekMonth(storeId, todayObj){
+  const cache = weekMonthCache[storeId];
+  const todaySales = Number((todayObj && todayObj.salesTotal) || 0);
+  if(!cache){
+    return { loading: true, week: 0, month: 0 };
+  }
+  return {
+    loading: false,
+    week: cache.weekHistorical + todaySales,
+    month: cache.monthHistorical + todaySales
+  };
+}
+
+// 每 60 秒重撈一次歷史（同時也在第一次 render 時觸發）
+let weekMonthTimer = null;
+function startWeekMonthLoader(){
+  if(weekMonthTimer) return;
+  const tick = ()=>{
+    if(!lastDashboardData) return;
+    const storeIds = Object.keys(lastDashboardData);
+    if(storeIds.length === 0) return;
+    // 檢查是否有任何快取過期
+    const now = Date.now();
+    const needRefresh = storeIds.some(sid => {
+      const c = weekMonthCache[sid];
+      return !c || (now - c.fetchedAt > WEEK_MONTH_TTL_MS);
+    });
+    if(needRefresh) loadWeekMonthHistorical(storeIds);
+  };
+  tick();  // 立即跑一次
+  weekMonthTimer = setInterval(tick, 30 * 1000);  // 每 30 秒檢查一次（實際更新由 TTL 60s 控制）
+}
 
 function startDashboardListener(){
   if(dashboardListenerStarted) return;
   dashboardListenerStarted = true;
-  onValue(dashRef, snap=>render(snap.val()), err=>{
+  onValue(dashRef, snap=>{
+    render(snap.val());
+    startWeekMonthLoader();  // 第一次拿到資料就啟動週月載入器
+  }, err=>{
     console.error("Firebase 讀取失敗",err);
     const empty=$("empty");
     empty.innerHTML="<h2>連線失敗</h2><p>"+err.message+"</p>";
