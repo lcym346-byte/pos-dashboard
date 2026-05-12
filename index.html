@@ -85,12 +85,7 @@
   .store-list label input{width:auto}
   .preview-frame{width:100%;height:60vh;border:1px solid #334155;border-radius:8px;background:#fff}
 
-  /* 跨店彙總卡 */
-  .summary-card{background:linear-gradient(135deg,#1e3a8a 0%,#1e293b 100%);border-radius:12px;padding:16px;margin:0 auto 16px;max-width:1400px;border:1px solid #3b82f6;display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
-  .summary-cell{text-align:center}
-  .summary-label{font-size:12px;color:#94a3b8;margin-bottom:4px}
-  .summary-value{font-size:20px;font-weight:bold;color:#fff}
-  .summary-value.warn{color:#fbbf24}
+  
 
   /* 異常提示 */
   .alert-badge{display:inline-block;background:#ef4444;color:#fff;font-size:11px;padding:2px 6px;border-radius:4px;margin-left:6px;font-weight:bold}
@@ -130,29 +125,7 @@
     </div>
   </header>
 
-  <!-- 跨店今日彙總 -->
-  <div id="summaryCard" class="summary-card" style="display:none">
-    <div class="summary-cell">
-      <div class="summary-label">線上店鋪</div>
-      <div class="summary-value" id="sumOnline">0 / 0</div>
-    </div>
-    <div class="summary-cell">
-      <div class="summary-label">今日總營業額</div>
-      <div class="summary-value" id="sumSales">$0</div>
-    </div>
-    <div class="summary-cell">
-      <div class="summary-label">今日總訂單</div>
-      <div class="summary-value" id="sumOrders">0</div>
-    </div>
-    <div class="summary-cell">
-      <div class="summary-label">平均客單</div>
-      <div class="summary-value" id="sumAvg">$0</div>
-    </div>
-    <div class="summary-cell">
-      <div class="summary-label">異常店鋪</div>
-      <div class="summary-value warn" id="sumAlert">0</div>
-    </div>
-  </div>
+ 
 
   <div id="grid" class="grid"></div>
   <div id="empty" class="empty" style="display:none"><h2>尚無店鋪資料</h2><p>請確認 POS 端已設定 storeId 並運行</p></div>
@@ -432,33 +405,6 @@ function detectAlerts(storeId, d){
   return alerts;
 }
 
-function renderSummary(stores){
-  if(!stores || stores.length === 0){
-    $('summaryCard').style.display = 'none';
-    return;
-  }
-  let online = 0;
-  let totalSales = 0;
-  let totalOrders = 0;
-  let alertCount = 0;
-
-  stores.forEach(([sid, d]) => {
-    const hb = d.heartbeat || {};
-    const today = d.today || {};
-    const isOnline = hb.lastSeenAt && (Date.now() - new Date(hb.lastSeenAt).getTime() < ONLINE_THRESHOLD);
-    if(isOnline) online++;
-    totalSales += Number(today.salesTotal || 0);
-    totalOrders += Number(today.orderCount || 0);
-    if(detectAlerts(sid, d).length > 0) alertCount++;
-  });
-
-  $('sumOnline').textContent = online + ' / ' + stores.length;
-  $('sumSales').textContent = money(totalSales);
-  $('sumOrders').textContent = totalOrders;
-  $('sumAvg').textContent = money(totalOrders > 0 ? Math.round(totalSales / totalOrders) : 0);
-  $('sumAlert').textContent = alertCount;
-  $('summaryCard').style.display = '';
-}
 
 function render(data){
   lastDashboardData = data;
@@ -467,7 +413,7 @@ function render(data){
   const stores=data?Object.entries(data):[];
   $("storeCount").textContent="店鋪數："+stores.length;
   $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW");
-  renderSummary(stores);
+  
 
   if(stores.length===0){grid.innerHTML=""; empty.style.display="block"; return;}
   empty.style.display="none";
