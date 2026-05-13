@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>多店即時看板 v20260608</title>
+<title>多店即時看板 v20260613</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:-apple-system,"Microsoft JhengHei",sans-serif;background:#0f172a;color:#e2e8f0;min-height:100vh;padding:20px}
@@ -471,25 +471,27 @@ function render(data){
           <div class="total-cell"><div class="total-label">本月累計</div><div class="total-value ${weekMonth.loading?'total-loading':''}" data-store="${storeId}" data-period="month">${weekMonth.loading?'載入中...':fmt(weekMonth.month)}</div></div>
         </div>
                 <div class="stats">
-          <div class="stat"><div class="stat-label">今日營業額</div><div class="stat-value">${fmt(today.salesTotal)}</div></div>
+          <div class="stat"><div class="stat-label">營業額</div><div class="stat-value">${fmt(today.salesTotal)}</div></div>
           <div class="stat"><div class="stat-label">訂單數</div><div class="stat-value">${today.orderCount||0}</div></div>
           <div class="stat"><div class="stat-label">客單價</div><div class="stat-value">${fmt(today.avgTicket)}</div></div>
         </div>
-        ${(() => {
+                ${(() => {
+          // v20260613：異常單（void/cancelled/refunded）已從 salesTotal 排除
+          //            外送金額已計入 salesTotal（屬「其他」付款），這裡單獨顯示讓店長能拆解
           const voided = today.voided || { amount: 0, count: 0 };
           const voidedAmt = Number(voided.amount || 0);
           const voidedCount = Number(voided.count || 0);
-          const netSales = (today.netSalesTotal !== undefined)
-            ? Number(today.netSalesTotal)
-            : (Number(today.salesTotal || 0) - voidedAmt);
+          const delivery = today.delivery || { total: 0, panda: 0, uber: 0 };
+          const deliveryTotal = Number(delivery.total || 0);
           return `
         <div class="stats">
-          <div class="stat"><div class="stat-label">作廢/取消金額</div><div class="stat-value ${voidedAmt > 0 ? 'negative' : ''}">${voidedAmt > 0 ? '-' + fmt(voidedAmt) : fmt(0)}</div></div>
-          <div class="stat"><div class="stat-label">作廢/取消單數</div><div class="stat-value ${voidedCount > 0 ? 'negative' : ''}">${voidedCount} 單</div></div>
-          <div class="stat"><div class="stat-label">淨營業額</div><div class="stat-value">${fmt(netSales)}</div></div>
+          <div class="stat"><div class="stat-label">異常單金額</div><div class="stat-value ${voidedAmt > 0 ? 'negative' : ''}">${voidedAmt > 0 ? '-' + fmt(voidedAmt) : fmt(0)}</div></div>
+          <div class="stat"><div class="stat-label">異常單數</div><div class="stat-value ${voidedCount > 0 ? 'negative' : ''}">${voidedCount} 單</div></div>
+          <div class="stat"><div class="stat-label">🛵 外送</div><div class="stat-value" style="color:#60a5fa">${fmt(deliveryTotal)}</div></div>
         </div>
           `;
         })()}
+
 
         ${paymentHtml}
         ${sessionHtml}
@@ -609,6 +611,41 @@ async function loadWeekMonthHistorical(storeIds){
     if(lastDashboardData) render(lastDashboardData);
   }
 }
+// ============================================================
+// v20260613：取得「主店」營業時段（用於跨店 BD 計算）
+// 邏輯：若所有店 businessHours 相同 → 直接用；否則用第一個店的
+// 結果快取在 cachedMainBusinessHours，由 startDashboardListener() 第一次拿到資料時填入
+// ============================================================
+let cachedMainBusinessHours = null;
+
+function getMainBusinessHours(){
+  if(cachedMainBusinessHours) return cachedMainBusinessHours;
+  // fallback：14:00 - 03:00
+  return { openTime: '14:00', closeTime: '03:00' };
+}
+
+async function refreshMainBusinessHours(){
+  if(!lastDashboardData) return;
+  const storeIds = Object.keys(lastDashboardData);
+  for(const sid of storeIds){
+    const bh = lastDashboardData[sid]?.businessHours;
+    if(bh && bh.openTime && bh.closeTime){
+      cachedMainBusinessHours = bh;
+      return;
+    }
+  }
+  // 全部店都沒上傳 businessHours → 嘗試從 dashboards/{storeId}/businessHours 讀
+  for(const sid of storeIds){
+    try{
+      const snap = await fbGet(fbRef(db, `dashboards/${sid}/businessHours`));
+      const v = snap.val();
+      if(v && v.openTime && v.closeTime){
+        cachedMainBusinessHours = v;
+        return;
+      }
+    }catch(_){}
+  }
+}
 
 // 給 render 用：取得單店的週/月累計（含今日）
 function getStoreWeekMonth(storeId, todayObj){
@@ -647,10 +684,12 @@ function startWeekMonthLoader(){
 function startDashboardListener(){
   if(dashboardListenerStarted) return;
   dashboardListenerStarted = true;
-  onValue(dashRef, snap=>{
+    onValue(dashRef, snap=>{
     render(snap.val());
     startWeekMonthLoader();  // 第一次拿到資料就啟動週月載入器
+    refreshMainBusinessHours();  // v20260613：同步取得主店營業時段供 BD 計算用
   }, err=>{
+
     console.error("Firebase 讀取失敗",err);
     const empty=$("empty");
     empty.innerHTML="<h2>連線失敗</h2><p>"+err.message+"</p>";
@@ -687,10 +726,13 @@ document.querySelectorAll('.preset-btn').forEach(btn => {
 });
 
 function applyPreset(preset){
-  const r = getDateRange(preset);
+  // v20260613：BD 模式 — 需傳入主店 businessHours
+  const bh = getMainBusinessHours();
+  const r = getDateRange(preset, bh);
   $('dateFrom').value = r.from;
   $('dateTo').value = r.to;
 }
+
 
 // 手動改日期 → 取消 active
 ['dateFrom', 'dateTo'].forEach(id => {
@@ -735,13 +777,14 @@ $('generateReportBtn').addEventListener('click', async ()=>{
     alert('起始日期不能晚於結束日期');
     return;
   }
-  // 檢查 60 天上限
+    // 檢查 60 個營業日上限（v20260613：BD 概念下用字串比較較直觀，60 天約等於 60 BD）
   const dayMs = 86400000;
-  const span = (new Date(dateTo) - new Date(dateFrom)) / dayMs;
+  const span = (new Date(dateTo + 'T00:00:00') - new Date(dateFrom + 'T00:00:00')) / dayMs;
   if(span > 60){
-    alert('區間最多 60 天');
+    alert('區間最多 60 個營業日');
     return;
   }
+
 
   const selectedStores = Array.from(document.querySelectorAll('.store-chk:checked')).map(c => c.value);
   if(selectedStores.length === 0){
