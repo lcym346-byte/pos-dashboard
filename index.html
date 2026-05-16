@@ -618,34 +618,65 @@ async function loadWeekMonthHistorical(storeIds){
 // ============================================================
 let cachedMainBusinessHours = null;
 
+// v20260516a：判斷 businessHours 是否為有效結構（新版七天 slot 或舊版扁平）
+function _isValidBH(bh){
+  if(!bh || typeof bh !== 'object') return false;
+  const KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
+  // 新版：任一 weekday 為陣列即視為有效
+  if(KEYS.some(k => Array.isArray(bh[k]))) return true;
+  // 舊版：扁平 {openTime, closeTime}
+  if(bh.openTime && bh.closeTime) return true;
+  return false;
+}
+
+// v20260516a：把扁平 {openTime,closeTime} 轉成新版七天 slot 結構
+function _normalizeBH(bh){
+  if(!bh || typeof bh !== 'object') return null;
+  const KEYS = ['sun','mon','tue','wed','thu','fri','sat'];
+  if(KEYS.some(k => Array.isArray(bh[k]))) return bh; // 已是新版
+  if(bh.openTime && bh.closeTime){
+    const slot = [{ start: bh.openTime, end: bh.closeTime }];
+    const out = {};
+    KEYS.forEach(k => { out[k] = slot; });
+    return out;
+  }
+  return null;
+}
+
 function getMainBusinessHours(){
   if(cachedMainBusinessHours) return cachedMainBusinessHours;
-  // fallback：14:00 - 03:00
-  return { openTime: '14:00', closeTime: '03:00' };
+  // fallback：14:00 - 03:00，七天都營業
+  const slot = [{ start: '14:00', end: '03:00' }];
+  return {
+    sun: slot, mon: slot, tue: slot, wed: slot,
+    thu: slot, fri: slot, sat: slot
+  };
 }
 
 async function refreshMainBusinessHours(){
   if(!lastDashboardData) return;
   const storeIds = Object.keys(lastDashboardData);
+  // 1. 先從 lastDashboardData 找有設定 businessHours 的店
   for(const sid of storeIds){
     const bh = lastDashboardData[sid]?.businessHours;
-    if(bh && bh.openTime && bh.closeTime){
-      cachedMainBusinessHours = bh;
+    if(_isValidBH(bh)){
+      cachedMainBusinessHours = _normalizeBH(bh);
       return;
     }
   }
-  // 全部店都沒上傳 businessHours → 嘗試從 dashboards/{storeId}/businessHours 讀
+  // 2. lastDashboardData 沒帶 businessHours → 直接讀 dashboards/{storeId}/businessHours
   for(const sid of storeIds){
     try{
       const snap = await fbGet(fbRef(db, `dashboards/${sid}/businessHours`));
       const v = snap.val();
-      if(v && v.openTime && v.closeTime){
-        cachedMainBusinessHours = v;
+      if(_isValidBH(v)){
+        cachedMainBusinessHours = _normalizeBH(v);
         return;
       }
     }catch(_){}
   }
 }
+
 
 // 給 render 用：取得單店的週/月累計（含今日）
 function getStoreWeekMonth(storeId, todayObj){
