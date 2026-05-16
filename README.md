@@ -484,3 +484,168 @@ pos-dashboard/
 - Firebase Console 對應節點截圖
 - 看板顯示異常的店家 storeId 與時間點
 
+---
+
+## 📦 sessionHistory 雲端節點結構（v20260613）
+
+POS 結班時會把整班資料上傳到 Firebase Realtime Database，看板的歷史報表就是讀這裡。
+
+### 路徑
+
+```
+sessionHistory/{storeId}/{BD}/{sessionId}
+```
+
+- `{storeId}`：店鋪代碼，例如 `store001`
+- `{BD}`：營業日（Business Day），格式 `YYYY-MM-DD`，依「班次 startedAt 的 BD」計算；跨日營業（例如 14:00–03:00）歸到開班那天的 BD
+- `{sessionId}`：班次 ID，例如 `sess_1778446402343`
+
+### 頂層欄位
+
+| 欄位 | 型別 | 說明 |
+|---|---|---|
+| `sessionId` | string | 班次 ID |
+| `storeId` | string | 店鋪代碼 |
+| `storeName` | string | 店鋪名稱 |
+| `staffId` | string | 開班人員 |
+| `endStaffId` | string | 結班人員 |
+| `startedAt` | ISO string | 開班時間 |
+| `endedAt` | ISO string | 結班時間 |
+| `openingCash` | number | 期初備用金 |
+| `closingCash` | number | 期末清點現金 |
+| `expectedCash` | number | 應收現金（期初 + 現金訂單合計） |
+| `cashDiff` | number | 現金誤差（closingCash − expectedCash，可正可負） |
+| `note` | string | 結班備註 |
+| `bdDate` | string | 此節點所屬 BD（與路徑上的 {BD} 相同） |
+| `uploadedAt` | ISO string | 上傳時間 |
+| `stats` | object | 統計（見下） |
+| `orders` | array | 訂單明細（見下） |
+
+### `stats` 物件
+
+| 欄位 | 說明 |
+|---|---|
+| `orderCount` | 有效訂單數（不含作廢） |
+| `salesTotal` | 營業額（含外送加總） |
+| `discountTotal` | 折扣加總 |
+| `byType` | 訂單類型分項，例如 `{內用: 1500, 外帶: 800}` |
+| `byPayment` | 付款方式分項，例如 `{現金: 1200, LinePay: 800, 其他: 300}` |
+| `cashSales` | 現金訂單合計（外送不計入） |
+| `voidedCount` | 作廢 / 取消 / 退款單數 |
+| `voidedAmount` | 作廢金額 |
+| `deliveryPanda` | 熊貓外送金額（結班時手動輸入） |
+| `deliveryUber` | Uber 外送金額（結班時手動輸入） |
+| `deliveryTotal` | 外送合計（panda + uber，會加進 `salesTotal` 與 `byPayment['其他']`） |
+
+### `orders` 陣列
+
+POS 用 `.map()` 包成陣列上傳，Firebase 收到就是純 array，看板讀取請用 `Array.isArray()` 判斷，**不要**改成 `Object.values()`。每筆訂單包含：
+
+| 欄位 | 說明 |
+|---|---|
+| `orderNo` | 訂單編號 |
+| `createdAt` / `updatedAt` / `reservationAt` | 時間 |
+| `total` / `subtotal` | 金額 |
+| `discountAmount` / `discountValue` / `discountType` | 折扣資訊 |
+| `paymentMethod` | 付款方式 |
+| `orderType` | 訂單類型（內用 / 外帶 / 外送 / 線上點餐…） |
+| `tableNo` | 桌號 |
+| `status` | 狀態（completed / pending / void / cancelled / refunded） |
+| `statusBeforeVoid` / `voidedAt` / `voidedReason` / `voidedBy` | 作廢資訊 |
+| `itemCount` | 品項數量 |
+| `items[]` | 品項陣列：`{ name, qty, basePrice, extraPrice, options, note }` |
+
+---
+
+## 🔐 Firebase 規則必備項目
+
+歷史報表能不能讀到資料，**完全取決於規則有沒有放行**。看板端最常踩到的雷就是缺這條：
+
+```json
+{
+  "rules": {
+    "sessionHistory": {
+      ".read": "auth != null",
+      "$storeId": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}
+```
+
+如果歷史報表畫面空白，**第一件事是按 F12 開 Console**，看有沒有：
+
+```
+[history-loader] 讀取 sessionHistory/store001/2026-05-12 失敗 – Permission denied
+```
+
+- 有 → 規則沒開，去 Firebase Console 補上 `sessionHistory` 的 `.read`
+- 沒有 → 才往下查別的（businessHours 異常、店鋪沒勾選、日期區間錯誤等）
+
+---
+
+## 📅 看板各區塊的資料來源
+
+不同區塊讀的 Firebase 節點不同，搞混會誤判 bug。
+
+| 看板區塊 | 讀的節點 | key 的型態 |
+|---|---|---|
+| 店鋪卡片「本日營業額」 | `dashboards/{storeId}/today.salesTotal` | POS 端已用 BD 算好推上來，看板**直接顯示**，沒讀 sessionHistory |
+| 店鋪卡片「本週累計」「本月累計」 | `sessionHistory/{storeId}/{自然日}` + `dashboards/{storeId}/today` | 歷史部分用**自然日**累加（避免跨日邊界判斷複雜），今日部分加上 `today.salesTotal` |
+| 店鋪卡片「班次未結 X 小時」 | `dashboards/{storeId}/session.startedAt` 與當下時間差 | 結班後 POS 端會 `set(null)` 把節點刪掉；若節點殘留，通常是**另一台 POS 還開著班**在偷推上去（不是程式 bug） |
+| 歷史報表（過去 7／30／60 天） | `sessionHistory/{storeId}/{BD}` | 用 BD 撈，跨日營業會正確歸到開班那天 |
+
+> ⚠ 看板首頁「本週／本月累計」目前用**自然日**讀；POS 端寫入用 **BD**。這在大多數時段都對得上，唯一邊界情況是跨日營業（例如 14:00–03:00）的凌晨時段，可能讓自然日與 BD 不一致，造成累計數字差幾筆。**這是已知設計取捨，不修**——歷史報表要看精準數字請用「歷史報表」功能，那裡用 BD。
+
+---
+
+## 🛠 修改 `js/biz-day.js` 時的同步規則
+
+`pos-dashboard/js/biz-day.js` 與 POS 端 `2237-1/js/core/biz-day.js` 是**同一份邏輯**，修改其中一個必須同步改另一個。函式簽章必須一致：
+
+- `getBusinessDay(time, businessHours)` → 取某時間點的 BD 日期字串
+- `getBDRange(bdDateStr, businessHours)` → 取某 BD 的起訖時間
+- `isOpenDay(dateStr, businessHours)` → 該日是否為營業日
+- `getRecentBDs(n, businessHours, fromDate?)` → 最近 N 個營業日（由新到舊）
+- `getBDsBetween(fromBD, toBD, businessHours)` → 兩 BD 之間的所有營業日
+
+`businessHours` 物件結構：
+
+```json
+{
+  "sun": [],
+  "mon": [{ "start": "14:00", "end": "03:00" }],
+  "tue": [{ "start": "14:00", "end": "03:00" }],
+  "wed": [{ "start": "14:00", "end": "03:00" }],
+  "thu": [{ "start": "14:00", "end": "03:00" }],
+  "fri": [{ "start": "14:00", "end": "03:00" }],
+  "sat": [{ "start": "14:00", "end": "03:00" }]
+}
+```
+
+- 公休日：對應 weekday key 設為空陣列 `[]`
+- 跨日營業：`end < start` 視為跨日（例 `14:00 → 03:00`）
+- 舊版扁平結構 `{ openTime, closeTime }` 由 `history-loader.js` 的 `normalizeBusinessHours()` 相容轉換，新版請統一用七天 slot 結構
+
+---
+
+## 🐛 常見故障排除
+
+| 症狀 | 可能原因 | 處理 |
+|---|---|---|
+| 歷史報表整片空白 | Firebase 規則沒放行 `sessionHistory` | 補規則並 Publish |
+| 看板首頁顯示「班次未結 X 小時」但 POS 已結班 | 另一台 POS 還開著班次，每 30 秒推 `session` 上去 | 找到那台 POS 結班；或 Firebase Console 手動刪 `dashboards/{storeId}/session` 並把該台 POS 的 localStorage 清掉 |
+| 異常單金額永遠 0 | POS 端寫入欄位名與看板讀取欄位名不一致 | 兩邊統一使用 `voided`（不是 `abnormal`），詳見 `aiREADME最新進度.md` v20260614 欄位命名規約 |
+| 歷史報表只缺某天 | 該日所有店都公休（`businessHours[weekday] = []`） | 預期行為，BD 函式會跳過公休日 |
+| 預設區間日期變成 `undefined` | `businessHours` 為空或格式錯誤 | `history-loader.js` 的 `getDateRange` 有 fallback（14:00–03:00 七天），檢查 `dashboards/{storeId}/businessHours` 節點是否存在且為新版七天 slot 結構 |
+
+---
+
+## 📝 修改規則
+
+1. 看板是**唯讀**端，禁止寫入 `sessionHistory`、`dashboards/{storeId}/today`、`dashboards/{storeId}/session` 等 POS 端管理的節點
+2. 任何 Firebase 讀取欄位名稱變更前，必須先 grep POS repo（`2237-1`）確認寫入端有對應同名欄位
+3. `js/biz-day.js` 修改後**必須同步**改 POS 端 `2237-1/js/core/biz-day.js`，反之亦然
+4. 看板沒有 PWA cache 設定，不需要管 service-worker；POS 端才需要
