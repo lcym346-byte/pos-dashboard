@@ -1,7 +1,12 @@
 /* ============================================================
-   js/history-loader.js  v20260608
+   js/history-loader.js  v20260516a
    從 Firebase 撈 60 天歷史並整理成報表 builder 要的格式
    依賴：firebase-app.js / firebase-database.js（由 index.html 提供 db 實例）
+   
+   v20260516a 修正：
+   - getStoreBusinessHours: 相容新版 {mon:[{start,end}],...} 七天 slot 結構
+     （舊版 {openTime,closeTime} 也保留相容）
+   - getDateRange: getRecentBDs 回傳由新到舊，'from' 應取 arr[arr.length-1]
    ============================================================ */
 
 import { ref, get, child } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
@@ -23,19 +28,47 @@ function isVoidedStatus(status){
   const s = String(status || '').toLowerCase();
   return s === 'void' || s === 'cancelled' || s === 'refunded';
 }
+
+// ============================================================
+// 把舊版扁平 businessHours 轉成新版七天 slot 結構
+// 舊版：{ openTime: '14:00', closeTime: '03:00' }（每天都營業）
+// 新版：{ sun:[{start,end}], mon:[{start,end}], ... }
+// ============================================================
+const WEEKDAY_KEYS_HL = ['sun','mon','tue','wed','thu','fri','sat'];
+function normalizeBusinessHours(v){
+  if(!v || typeof v !== 'object') return null;
+  // 新版：含任一 weekday key 且為陣列
+  const hasNew = WEEKDAY_KEYS_HL.some(k => Array.isArray(v[k]));
+  if(hasNew) return v;
+  // 舊版扁平：補成七天都營業
+  if(v.openTime && v.closeTime){
+    const slot = [{ start: v.openTime, end: v.closeTime }];
+    const out = {};
+    WEEKDAY_KEYS_HL.forEach(k => { out[k] = slot; });
+    return out;
+  }
+  return null;
+}
+
 // ============================================================
 // 取得單店營業時段（從 dashboards/{storeId}/businessHours）
-// fallback：14:00 - 03:00（跨日）
+// fallback：14:00 - 03:00（跨日，七天都營業）
 // ============================================================
 async function getStoreBusinessHours(db, storeId){
   try{
     const snap = await get(ref(db, `dashboards/${storeId}/businessHours`));
     const v = snap.val();
-    if(v && v.openTime && v.closeTime) return v;
+    const norm = normalizeBusinessHours(v);
+    if(norm) return norm;
   }catch(err){
     console.warn(`[history-loader] 讀 businessHours/${storeId} 失敗`, err);
   }
-  return { openTime: '14:00', closeTime: '03:00' };
+  // fallback：14:00-03:00，七天都營業
+  const slot = [{ start: '14:00', end: '03:00' }];
+  return {
+    sun: slot, mon: slot, tue: slot, wed: slot,
+    thu: slot, fri: slot, sat: slot
+  };
 }
 
 // 用本機時區產生今天 YYYY-MM-DD
@@ -75,23 +108,6 @@ export async function listStores(db){
 
 // ============================================================
 // 載入 60 天內歷史
-// 參數：
-//   db          - Firebase database 實例
-//   storeIds    - 要撈的店鋪 ID 陣列；空陣列 = 全部
-//   dateFrom    - 'YYYY-MM-DD'
-//   dateTo      - 'YYYY-MM-DD'
-// 回傳：
-//   {
-//     dateFrom, dateTo,
-//     stores: [{
-//       storeId, storeName,
-//       sessions: [...],           // 班次原始物件
-//       orders: [...],             // 所有訂單（已含 storeId）
-//       days: [{ date, salesTotal, orderCount, payments, voidedCount, voidedAmount, discountTotal }]
-//     }],
-//     rejectedOrders: [...],       // 跨店拒單列表（從 sessions 內找）
-//     discountOrders: [...]        // 跨店折扣單列表
-//   }
 // ============================================================
 export async function loadHistory(db, storeIds, dateFrom, dateTo){
   // 1. 先解出要撈哪些店
@@ -110,14 +126,9 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
     if(!targetStoreIds) targetStoreIds = [];
   }
 
-    // v20260613：dateFrom/dateTo 已是 BD 字串，逐店用各店 businessHours 展開區間
-  // （區間內 BD 字串本身與 businessHours 無關，僅在分類訂單時才用到）
   const bdDates = getDatesInRange(dateFrom, dateTo); // 仍是自然日清單，作為節點 key 使用
 
-
   // 2. 逐店逐日去撈 sessionHistory/{storeId}/{date}
-  //    （Firebase 不能 wildcard query，但每次 get 都是 O(該日節點大小)，
-  //     60 天 * N 店 = 最多 60N 次 get，多店看板用戶通常 <10 店，效能可接受）
   const result = {
     dateFrom,
     dateTo,
@@ -135,9 +146,16 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
       days: []
     };
 
-        // v20260613：取得該店 businessHours，並用 BD 列出區間內所有營業日當作節點 key
+    // 取得該店 businessHours，並用 BD 列出區間內所有營業日當作節點 key
     const bh = await getStoreBusinessHours(db, sid);
-    const storeBDs = getBDsBetween(dateFrom, dateTo, bh);
+    let storeBDs = getBDsBetween(dateFrom, dateTo, bh);
+
+    // v20260516a 防呆：若 getBDsBetween 因 businessHours 異常回傳空陣列，
+    // 退回用自然日清單，避免整個區間都不撈
+    if(storeBDs.length === 0){
+      console.warn(`[history-loader] ${sid} 的 businessHours 解析後無營業日，改用自然日清單`);
+      storeBDs = bdDates;
+    }
 
     // 並行撈該店所有 BD 節點，限制併發 8
     const concurrency = 8;
@@ -156,7 +174,6 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
         const dayData = snap.val();
         if(!dayData) return;
 
-        // dayData = { sessionId1: {...}, sessionId2: {...} }
         Object.values(dayData).forEach(session => {
           if(!session) return;
           storeBlock.sessions.push(session);
@@ -169,11 +186,9 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
             });
             storeBlock.orders.push(enriched);
 
-            // 折扣單
             if(Number(o.discountAmount || 0) > 0 && !isVoidedStatus(o.status)){
               result.discountOrders.push(enriched);
             }
-            // 作廢單視為拒單
             if(isVoidedStatus(o.status)){
               result.rejectedOrders.push(Object.assign({}, enriched, {
                 replyMessage: o.voidedReason || ''
@@ -184,12 +199,13 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
       });
     }
 
-        // 3. 把 orders 整理成每日彙總（v20260613：用 BD 而非自然日）
-    //    預約單以 reservationAt 為基準，其他用 createdAt
+    // 3. 把 orders 整理成每日彙總（用 BD 而非自然日）
     const dayMap = {};
     storeBlock.orders.forEach(o => {
       const baseTime = o.reservationAt || o.createdAt;
-      const dk = getBusinessDay(baseTime, bh);
+      let dk = getBusinessDay(baseTime, bh);
+      // v20260516a：若 BD 計算失敗，退回自然日，避免整批資料被丟棄
+      if(!dk) dk = localDateKey(baseTime);
       if(!dk) return;
 
       if(!dayMap[dk]){
@@ -227,7 +243,7 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
 }
 
 // ============================================================
-// 取得單店「今日進行中」資料（從 dashboards/{storeId}，因為今日尚未結班不會在 sessionHistory）
+// 取得單店「今日進行中」資料
 // ============================================================
 export async function loadTodayLive(db, storeId){
   const snap = await get(ref(db, `dashboards/${storeId}`));
@@ -242,32 +258,45 @@ export async function loadTodayLive(db, storeId){
 }
 
 // ============================================================
-// 快捷日期區間（v20260613：BD 版，需傳入 businessHours）
-// 注意：preset='today' 回傳的是「今天的 BD」，可能與自然日不同
-// （例：凌晨 2 點時，BD 仍是昨天）
+// 快捷日期區間（v20260516a：修正 arr 索引、相容新版 businessHours）
+// 注意：preset='today' 回傳的是「今天的 BD」
 // ============================================================
 export function getDateRange(preset, businessHours){
-  const bh = businessHours || { openTime: '14:00', closeTime: '03:00' };
+  // v20260516a：fallback 也改為七天 slot 結構
+  const fallbackSlot = [{ start: '14:00', end: '03:00' }];
+  let bh = normalizeBusinessHours(businessHours);
+  if(!bh){
+    bh = {
+      sun: fallbackSlot, mon: fallbackSlot, tue: fallbackSlot, wed: fallbackSlot,
+      thu: fallbackSlot, fri: fallbackSlot, sat: fallbackSlot
+    };
+  }
   const todayBD = getBusinessDay(new Date(), bh);
 
+  // getRecentBDs 回傳：由新到舊（arr[0]=最新、arr[arr.length-1]=最舊）
   switch(preset){
     case 'today':
       return { from: todayBD, to: todayBD };
     case 'yesterday': {
       const arr = getRecentBDs(2, bh);
-      return { from: arr[0], to: arr[0] }; // 索引 0 = 昨天 BD
+      // arr[0]=今天 BD、arr[1]=昨天 BD
+      const y = arr[1] || arr[0] || todayBD;
+      return { from: y, to: y };
     }
     case '7d': {
       const arr = getRecentBDs(7, bh);
-      return { from: arr[0], to: todayBD };
+      const earliest = arr[arr.length - 1] || todayBD;
+      return { from: earliest, to: todayBD };
     }
     case '30d': {
       const arr = getRecentBDs(30, bh);
-      return { from: arr[0], to: todayBD };
+      const earliest = arr[arr.length - 1] || todayBD;
+      return { from: earliest, to: todayBD };
     }
     case '60d': {
       const arr = getRecentBDs(60, bh);
-      return { from: arr[0], to: todayBD };
+      const earliest = arr[arr.length - 1] || todayBD;
+      return { from: earliest, to: todayBD };
     }
     default:
       return { from: todayBD, to: todayBD };
