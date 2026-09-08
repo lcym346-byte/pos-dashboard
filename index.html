@@ -266,7 +266,8 @@ let lastDashboardData = null;
 let lastReportData = null;       // 暫存目前產生的 report 物件（給列印按鈕用）
 let lastRawHistory = null;       // 暫存原始 loadHistory 結果（給 CSV 用）
 let lastReportType = 'summary';
-
+let allowedStores = null;   // 分店權限：null=看全部；陣列=只看清單內
+ 
 // === DOM 工具 ===
 const $ = id => document.getElementById(id);
 function showLogin(){ $('loginScreen').style.display='flex'; $('dashboardScreen').style.display='none'; }
@@ -316,12 +317,23 @@ async function checkWhitelist(uid){
     const data = snapshot.val();
     if(!data) return false;
     const role = String(data.role || '').trim();
-    return role === 'admin' || role === 'staff';
+    if(role !== 'admin' && role !== 'staff') return false;
+    // 分店權限：admin 一律看全部；staff 看 allowedStores，未設或 '*' 也看全部
+    const a = data.allowedStores;
+    if(role === 'admin' || !a || a === '*' || (Array.isArray(a) && a.length === 0)){
+      allowedStores = null;
+    } else if(Array.isArray(a)){
+      allowedStores = a.map(s => String(s).trim());
+    } else {
+      allowedStores = null;
+    }
+    return true;
   }catch(err){
     console.error('讀取 staff 失敗：', err);
     throw err;
   }
 }
+
 
 // === 認證狀態 ===
 onAuthStateChanged(auth, async user => {
@@ -417,7 +429,8 @@ function render(data){
   lastDashboardData = data;
   const grid=$("grid");
   const empty=$("empty");
-  const stores=data?Object.entries(data):[];
+  let stores=data?Object.entries(data):[];
+  if(allowedStores){ stores = stores.filter(([sid]) => allowedStores.includes(sid)); }
   $("storeCount").textContent="店鋪數："+stores.length;
   $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW");
   
@@ -777,8 +790,10 @@ async function loadStoreCheckList(){
   const body = $('storeChkBody');
   body.innerHTML = '<div style="color:#94a3b8;font-size:13px">載入中...</div>';
   try {
-    const stores = await listStores(db);
+        let stores = await listStores(db);
+    if(allowedStores){ stores = stores.filter(s => allowedStores.includes(s.storeId)); }
     if(stores.length === 0){
+
       body.innerHTML = '<div style="color:#fbbf24;font-size:13px">尚未偵測到任何店鋪</div>';
       return;
     }
@@ -817,11 +832,13 @@ $('generateReportBtn').addEventListener('click', async ()=>{
   }
 
 
-  const selectedStores = Array.from(document.querySelectorAll('.store-chk:checked')).map(c => c.value);
+    let selectedStores = Array.from(document.querySelectorAll('.store-chk:checked')).map(c => c.value);
+  if(allowedStores){ selectedStores = selectedStores.filter(sid => allowedStores.includes(sid)); }
   if(selectedStores.length === 0){
     alert('請至少選擇一家店鋪');
     return;
   }
+
 
   const btn = $('generateReportBtn');
   btn.disabled = true;
