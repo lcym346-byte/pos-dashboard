@@ -316,18 +316,19 @@ async function checkWhitelist(uid){
     const snapshot = await get(ref(db, `staff/${uid}`));
     const data = snapshot.val();
     if(!data) return false;
-    const role = String(data.role || '').trim();
+        const role = String(data.role || '').trim();
     if(role !== 'admin' && role !== 'staff') return false;
-    // 分店權限：admin 一律看全部；staff 看 allowedStores，未設或 '*' 也看全部
-    const a = data.allowedStores;
-    if(role === 'admin' || !a || a === '*' || (Array.isArray(a) && a.length === 0)){
-      allowedStores = null;
-    } else if(Array.isArray(a)){
-      allowedStores = a.map(s => String(s).trim());
+    // 分店權限：統一讀 staff/{uid}/stores（與資料庫規則同一來源）
+    // admin 一律看全部；staff 讀 stores 物件內值為 true 的店代碼
+    const s = data.stores;
+    if(role === 'admin' || s === '*' || !s || typeof s !== 'object'){
+      allowedStores = null;   // 未設 stores 或 admin → 看全部
     } else {
-      allowedStores = null;
+      const keys = Object.keys(s).filter(sid => s[sid] === true);
+      allowedStores = keys.length > 0 ? keys : null;
     }
     return true;
+
   }catch(err){
     console.error('讀取 staff 失敗：', err);
     throw err;
