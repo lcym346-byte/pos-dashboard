@@ -105,14 +105,24 @@
   <div class="auth-box">
     <div class="auth-icon">📊</div>
     <div class="auth-title">多店即時看板</div>
-    <div class="auth-subtitle">請使用授權的 Google 帳號登入<br>以檢視所有店鋪營運資料</div>
-    <button id="googleSignInBtn" class="google-btn">
-      <svg class="google-icon" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/></svg>
-      <span id="googleSignInLabel">使用 Google 登入</span>
+    <div class="auth-subtitle">請使用授權的帳號登入<br>以檢視所有店鋪營運資料</div>
+    <div style="text-align:left;margin-bottom:14px">
+      <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">Email</label>
+      <input id="loginEmail" type="email" autocomplete="username" placeholder="you@example.com"
+        style="width:100%;background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:12px 14px;border-radius:10px;font-size:16px">
+    </div>
+    <div style="text-align:left;margin-bottom:20px">
+      <label style="display:block;font-size:13px;color:#94a3b8;margin-bottom:6px">密碼</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" placeholder="請輸入密碼"
+        style="width:100%;background:#0f172a;border:1px solid #334155;color:#e2e8f0;padding:12px 14px;border-radius:10px;font-size:16px">
+    </div>
+    <button id="emailSignInBtn" class="google-btn">
+      <span id="emailSignInLabel">登入</span>
     </button>
     <div id="authError" style="display:none"></div>
   </div>
 </div>
+
 
 <!-- 看板主畫面 -->
 <div id="dashboardScreen" style="display:none">
@@ -219,7 +229,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
 import { getDatabase, ref, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
 // 自家模組
 import {
@@ -256,7 +266,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const auth = getAuth(app);
-const provider = new GoogleAuthProvider();
 const dashRef = ref(db, "dashboards");
 const ONLINE_THRESHOLD = 90 * 1000;
 const ALERT_SESSION_HOURS = 14;
@@ -281,27 +290,39 @@ function showAuthError(html){
 function clearAuthError(){ $('authError').style.display='none'; }
 const money = v => '$' + (Number(v) || 0).toLocaleString('zh-TW');
 
-// === Google 登入 ===
-$('googleSignInBtn').addEventListener('click', async ()=>{
-  const btn = $('googleSignInBtn');
-  const label = $('googleSignInLabel');
+// === Email 登入 ===
+async function doEmailLogin(){
+  const btn = $('emailSignInBtn');
+  const label = $('emailSignInLabel');
+  const email = $('loginEmail').value.trim();
+  const password = $('loginPassword').value;
+  if(!email || !password){
+    showAuthError('⚠️ 請輸入 Email 和密碼。');
+    return;
+  }
   btn.disabled = true;
   label.textContent = '登入中...';
   clearAuthError();
   try{
-    await signInWithPopup(auth, provider);
+    await signInWithEmailAndPassword(auth, email, password);
   }catch(err){
     btn.disabled = false;
-    label.textContent = '使用 Google 登入';
-    if(err.code === 'auth/popup-closed-by-user'){
-      showAuthError('🛈 您取消了登入。請再試一次。');
-    } else if(err.code === 'auth/popup-blocked'){
-      showAuthError('⚠️ 瀏覽器封鎖了登入彈窗，請允許彈窗後再試。');
+    label.textContent = '登入';
+    if(err.code === 'auth/invalid-email'){
+      showAuthError('⚠️ Email 格式不正確。');
+    } else if(err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'){
+      showAuthError('❌ 帳號或密碼錯誤，請再試一次。');
+    } else if(err.code === 'auth/too-many-requests'){
+      showAuthError('⚠️ 嘗試次數過多，請稍後再試。');
     } else {
       showAuthError('❌ 登入失敗：<br>' + (err.message || err.code));
     }
   }
-});
+}
+$('emailSignInBtn').addEventListener('click', doEmailLogin);
+$('loginPassword').addEventListener('keydown', e => { if(e.key === 'Enter') doEmailLogin(); });
+$('loginEmail').addEventListener('keydown', e => { if(e.key === 'Enter') $('loginPassword').focus(); });
+
 
 // === 登出 ===
 $('logoutBtn').addEventListener('click', async ()=>{
@@ -338,13 +359,13 @@ async function checkWhitelist(uid){
 
 // === 認證狀態 ===
 onAuthStateChanged(auth, async user => {
-  const btn = $('googleSignInBtn');
-  const label = $('googleSignInLabel');
+  const btn = $('emailSignInBtn');
+  const label = $('emailSignInLabel');
 
   if(!user){
     showLogin();
     btn.disabled = false;
-    label.textContent = '使用 Google 登入';
+    label.textContent = '登入';
     clearAuthError();
     return;
   }
@@ -366,7 +387,7 @@ onAuthStateChanged(auth, async user => {
         <strong>🚫 您沒有看板權限</strong><br><br>
         登入帳號：<code style="color:#fbbf24">${displayEmail}</code><br>
         UID：<code style="color:#94a3b8;font-size:11px">${user.uid}</code><br><br>
-        此 Google 帳號不在授權清單內，<br>
+        此帳號不在授權清單內，<br>
         請聯絡管理員加入後再使用。
         <div style="text-align:center;margin-top:14px">
           <button id="unauthLogoutBtn" class="logout-btn">登出此帳號</button>
@@ -383,7 +404,7 @@ onAuthStateChanged(auth, async user => {
     $('currentUserEmail').textContent = displayEmail;
     showDashboard();
     btn.disabled = false;
-    label.textContent = '使用 Google 登入';
+    label.textContent = '登入';
     clearAuthError();
     startDashboardListener();
   }catch(err){
@@ -401,6 +422,7 @@ onAuthStateChanged(auth, async user => {
     };
   }
 });
+
 
 // === 看板資料載入 ===
 const fmt = n => (Number(n)||0).toLocaleString() + " 元";
