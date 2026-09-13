@@ -457,7 +457,7 @@ function render(data){
   const grid=$("grid");
   const empty=$("empty");
   let stores=data?Object.entries(data):[];
-  if(allowedStores){ stores = stores.filter(([sid]) => allowedStores.includes(sid)); }
+  if(Array.isArray(allowedStores)){ stores = stores.filter(([sid]) => allowedStores.includes(sid)); }
   $("storeCount").textContent="店鋪數："+stores.length;
   $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW");
   
