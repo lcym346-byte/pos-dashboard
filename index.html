@@ -271,6 +271,7 @@ const ONLINE_THRESHOLD = 90 * 1000;
 const ALERT_SESSION_HOURS = 14;
 
 let dashboardListenerStarted = false;
+let dashboardUnsubs = [];   // ← 新增:存放所有 onValue 的解除函式
 let lastDashboardData = null;
 let lastReportData = null;       // 暫存目前產生的 report 物件（給列印按鈕用）
 let lastRawHistory = null;       // 暫存原始 loadHistory 結果（給 CSV 用）
@@ -327,8 +328,10 @@ $('loginEmail').addEventListener('keydown', e => { if(e.key === 'Enter') $('logi
 // === 登出 ===
 $('logoutBtn').addEventListener('click', async ()=>{
   if(!confirm('確定要登出嗎？')) return;
+  resetDashboardState();
   await signOut(auth);
 });
+
 
 // === 權限檢查 ===
 async function checkWhitelist(uid){
@@ -764,32 +767,42 @@ function startDashboardListener(){
   };
 
   if(Array.isArray(allowedStores)){
-    // staff：只逐店監聽被授權的店
     const merged = {};
-    if(allowedStores.length === 0){
-      render({});  // 沒授權任何店 → 空畫面
-    }
+    if(allowedStores.length === 0){ render({}); }
     allowedStores.forEach(sid=>{
-      onValue(ref(db, "dashboards/"+sid), snap=>{
+      const unsub = onValue(ref(db, "dashboards/"+sid), snap=>{
         const v = snap.val();
         if(v) merged[sid] = v; else delete merged[sid];
         render(merged);
         startWeekMonthLoader();
         refreshMainBusinessHours();
       }, onErr);
+      dashboardUnsubs.push(unsub);
     });
   } else {
-    // admin：讀整包
-    onValue(dashRef, snap=>{
+    const unsub = onValue(dashRef, snap=>{
       render(snap.val());
       startWeekMonthLoader();
       refreshMainBusinessHours();
     }, onErr);
+    dashboardUnsubs.push(unsub);
   }
 
   setInterval(()=>{ $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW"); },1000);
 }
 
+function resetDashboardState(){
+  dashboardUnsubs.forEach(unsub => { try{ unsub(); }catch(_){} });
+  dashboardUnsubs = [];
+  dashboardListenerStarted = false;
+  allowedStores = null;
+  lastDashboardData = null;
+  for(const k in weekMonthCache) delete weekMonthCache[k];
+  if(weekMonthTimer){ clearInterval(weekMonthTimer); weekMonthTimer = null; }
+  cachedMainBusinessHours = null;
+  $("grid").innerHTML = "";
+  $("storeCount").textContent = "店鋪數：0";
+}
 
 // ============================================================
 // 歷史報表 Modal
