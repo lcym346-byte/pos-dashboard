@@ -94,17 +94,33 @@ export function getDatesInRange(from, to){
 // 列出所有 storeId（讀 dashboards 根節點）
 // 回傳：[{ storeId, storeName }, ...]
 // ============================================================
-export async function listStores(db){
+export async function listStores(db, allowedStores){
+  // staff：只逐店讀被授權的店，避免讀整包被規則擋
+  if(Array.isArray(allowedStores)){
+    const results = await Promise.all(
+      allowedStores.map(async sid => {
+        try{
+          const snap = await get(ref(db, `dashboards/${sid}`));
+          const d = snap.val() || {};
+          const heartbeat = (d && d.heartbeat) || {};
+          return { storeId: sid, storeName: heartbeat.storeName || sid };
+        }catch(err){
+          console.warn(`[history-loader] 讀 dashboards/${sid} 失敗`, err);
+          return { storeId: sid, storeName: sid };
+        }
+      })
+    );
+    return results;
+  }
+  // admin：讀整包
   const snap = await get(ref(db, 'dashboards'));
   const data = snap.val() || {};
   return Object.entries(data).map(([storeId, d]) => {
     const heartbeat = (d && d.heartbeat) || {};
-    return {
-      storeId,
-      storeName: heartbeat.storeName || storeId
-    };
+    return { storeId, storeName: heartbeat.storeName || storeId };
   });
 }
+
 
 // ============================================================
 // 載入 60 天內歷史
@@ -116,7 +132,7 @@ export async function loadHistory(db, storeIds, dateFrom, dateTo){
 
   // 從 dashboards 取得 storeName
   try {
-    const allStores = await listStores(db);
+     const allStores = await listStores(db, (storeIds && storeIds.length) ? storeIds : undefined);
     allStores.forEach(s => { storeNameMap[s.storeId] = s.storeName; });
     if(!targetStoreIds){
       targetStoreIds = allStores.map(s => s.storeId);
