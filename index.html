@@ -755,19 +755,41 @@ function startWeekMonthLoader(){
 function startDashboardListener(){
   if(dashboardListenerStarted) return;
   dashboardListenerStarted = true;
-    onValue(dashRef, snap=>{
-    render(snap.val());
-    startWeekMonthLoader();  // 第一次拿到資料就啟動週月載入器
-    refreshMainBusinessHours();  // v20260613：同步取得主店營業時段供 BD 計算用
-  }, err=>{
 
+  const onErr = err=>{
     console.error("Firebase 讀取失敗",err);
     const empty=$("empty");
     empty.innerHTML="<h2>連線失敗</h2><p>"+err.message+"</p>";
     empty.style.display="block";
-  });
+  };
+
+  if(Array.isArray(allowedStores)){
+    // staff：只逐店監聽被授權的店
+    const merged = {};
+    if(allowedStores.length === 0){
+      render({});  // 沒授權任何店 → 空畫面
+    }
+    allowedStores.forEach(sid=>{
+      onValue(ref(db, "dashboards/"+sid), snap=>{
+        const v = snap.val();
+        if(v) merged[sid] = v; else delete merged[sid];
+        render(merged);
+        startWeekMonthLoader();
+        refreshMainBusinessHours();
+      }, onErr);
+    });
+  } else {
+    // admin：讀整包
+    onValue(dashRef, snap=>{
+      render(snap.val());
+      startWeekMonthLoader();
+      refreshMainBusinessHours();
+    }, onErr);
+  }
+
   setInterval(()=>{ $("updateTime").textContent=new Date().toLocaleTimeString("zh-TW"); },1000);
 }
+
 
 // ============================================================
 // 歷史報表 Modal
