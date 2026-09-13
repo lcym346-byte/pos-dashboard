@@ -342,12 +342,16 @@ async function checkWhitelist(uid){
     // 分店權限：統一讀 staff/{uid}/stores（與資料庫規則同一來源）
     // admin 一律看全部；staff 讀 stores 物件內值為 true 的店代碼
     const s = data.stores;
-    if(role === 'admin' || s === '*' || !s || typeof s !== 'object'){
-      allowedStores = null;   // 未設 stores 或 admin → 看全部
-    } else {
-      const keys = Object.keys(s).filter(sid => s[sid] === true);
-      allowedStores = keys.length > 0 ? keys : null;
-    }
+if(role === 'admin'){
+  allowedStores = null;   // 只有 admin 看全部
+} else {
+  // staff 一律受限：讀 stores 內值為 true 的店；容錯字串 "true"
+  const keys = (s && typeof s === 'object')
+    ? Object.keys(s).filter(sid => s[sid] === true || s[sid] === 'true')
+    : [];
+  allowedStores = keys;   // 就算空陣列也保持空陣列（= 一家都不給看），不退回 null
+}
+
     return true;
 
   }catch(err){
