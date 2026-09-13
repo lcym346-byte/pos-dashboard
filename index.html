@@ -852,8 +852,8 @@ async function loadStoreCheckList(){
   const body = $('storeChkBody');
   body.innerHTML = '<div style="color:#94a3b8;font-size:13px">載入中...</div>';
   try {
-        let stores = await listStores(db);
-    if(allowedStores){ stores = stores.filter(s => allowedStores.includes(s.storeId)); }
+   let stores = await listStores(db, Array.isArray(allowedStores) ? allowedStores : undefined);
+   if(allowedStores){ stores = stores.filter(s => allowedStores.includes(s.storeId)); }
     if(stores.length === 0){
 
       body.innerHTML = '<div style="color:#fbbf24;font-size:13px">尚未偵測到任何店鋪</div>';
