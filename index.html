@@ -188,6 +188,7 @@
           <option value="session">班次明細（含現金差額）</option>
           <option value="order">訂單明細（含品項、選項、備註）</option>
           <option value="anomaly">異常單（拒單 + 折扣單）</option>
+          <option value="items">販售數量（各品項銷售統計）</option>
         </select>
       </div>
 
@@ -239,11 +240,13 @@ import {
   buildSessionReport,
   buildOrderDetailReport,
   buildAnomalyReport,
+  buildItemSalesReport,
   exportCSV,
   summaryToCSV,
   sessionsToCSV,
   ordersToCSV,
-  anomalyToCSV
+  anomalyToCSV,
+  itemsToCSV
 } from './js/print-service-dashboard.js';
 
 import {
@@ -928,6 +931,8 @@ $('generateReportBtn').addEventListener('click', async ()=>{
       case 'anomaly':
         report = buildAnomalyReport(history);
         break;
+        case 'items':
+        report = buildItemSalesReport(history);
     }
     lastReportData = report;
 
@@ -994,6 +999,9 @@ $('exportCsvBtn').addEventListener('click', ()=>{
     case 'anomaly':
       rows = anomalyToCSV(lastRawHistory);
       filename = `異常單_${lastRawHistory.dateFrom}_${lastRawHistory.dateTo}.csv`;
+      case 'items':
+        rows = itemsToCSV(lastRawHistory);
+        filename = `販售數量_${lastRawHistory.dateFrom}_${lastRawHistory.dateTo}.csv`;
       break;
   }
   exportCSV(rows, filename);

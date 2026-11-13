@@ -468,6 +468,95 @@ export function buildAnomalyReport(data){
     footer: '列印時間：' + fmtDateTime(new Date().toISOString())
   };
 }
+/**
+ * 品項販售數量報表（各店與跨店賣出幾樣、各幾份）
+ * @param {Object} data - { dateFrom, dateTo, stores: [{ storeId, storeName, orders: [...] }] }
+ */
+export function buildItemSalesReport(data){
+  const isVoided = s => ['void', 'cancelled', 'refunded'].includes(String(s || '').toLowerCase());
+  const sections = [];
+  const grandMap = {};
+  let grandTotalQty = 0;
+  let grandTotalAmt = 0;
+
+  (data.stores || []).forEach(store => {
+    const itemMap = {};
+    let storeTotalQty = 0;
+    let storeTotalAmt = 0;
+
+    (store.orders || []).forEach(o => {
+      if(isVoided(o.status)) return;
+      (o.items || []).forEach(it => {
+        const name = String(it.name || '未命名品項').trim();
+        const qty = Number(it.qty || 1);
+        const unitPrice = Number(it.basePrice || 0) + Number(it.extraPrice || 0);
+        const amt = unitPrice * qty;
+
+        if(!itemMap[name]) itemMap[name] = { name, qty: 0, amt: 0 };
+        itemMap[name].qty += qty;
+        itemMap[name].amt += amt;
+
+        if(!grandMap[name]) grandMap[name] = { name, qty: 0, amt: 0 };
+        grandMap[name].qty += qty;
+        grandMap[name].amt += amt;
+
+        storeTotalQty += qty;
+        storeTotalAmt += amt;
+      });
+    });
+
+    const sorted = Object.values(itemMap).sort((a, b) => b.qty - a.qty);
+    const rows = [];
+
+    if(sorted.length === 0){
+      rows.push(['(無銷售資料)', '']);
+    } else {
+      sorted.forEach(it => {
+        rows.push([it.name, `${it.qty} 份 (${money(it.amt)})`]);
+      });
+      rows.push(['─────────', '─────────']);
+      rows.push(['品項種類數', `${sorted.length} 樣`]);
+      rows.push(['總販售數量', `${storeTotalQty} 份`]);
+      rows.push(['品項銷售額', money(storeTotalAmt)]);
+    }
+
+    sections.push({
+      header: `${store.storeName || store.storeId} (${sorted.length}樣 / ${storeTotalQty}份)`,
+      rows
+    });
+
+    grandTotalQty += storeTotalQty;
+    grandTotalAmt += storeTotalAmt;
+  });
+
+  // 多店時在最下方加上「★ 跨店總計」區塊（與 buildSummaryReport 一致）
+  if((data.stores || []).length > 1){
+    const grandSorted = Object.values(grandMap).sort((a, b) => b.qty - a.qty);
+    const totalRows = [];
+    if(grandSorted.length === 0){
+      totalRows.push(['(無銷售資料)', '']);
+    } else {
+      grandSorted.forEach(it => {
+        totalRows.push([it.name, `${it.qty} 份 (${money(it.amt)})`]);
+      });
+      totalRows.push(['─────────', '─────────']);
+      totalRows.push(['跨店品項數', `${grandSorted.length} 樣`]);
+      totalRows.push(['跨店總數量', `${grandTotalQty} 份`]);
+      totalRows.push(['跨店銷售額', money(grandTotalAmt)]);
+    }
+    sections.push({
+      header: `★ 跨店總計 (${grandSorted.length}樣 / ${grandTotalQty}份)`,
+      rows: totalRows
+    });
+  }
+
+  return {
+    title: '販售數量報表',
+    subtitle: `${data.dateFrom} ~ ${data.dateTo}`,
+    sections,
+    footer: '列印時間：' + fmtDateTime(new Date().toISOString())
+  };
+}
 
 // ============================================================
 // CSV 匯出
@@ -613,6 +702,46 @@ export function anomalyToCSV(data){
       `原價 ${o.subtotal || 0}`
     ]);
   });
+  return rows;
+}
+/**
+ * 販售數量 CSV 結構（依店鋪 + 營業日 + 品項彙總）
+ */
+export function itemsToCSV(data){
+  const isVoided = s => ['void', 'cancelled', 'refunded'].includes(String(s || '').toLowerCase());
+  const rows = [
+    ['店鋪', '日期', '品項名稱', '販售數量', '銷售金額']
+  ];
+
+  (data.stores || []).forEach(store => {
+    const dayItemMap = {};
+    (store.orders || []).forEach(o => {
+      if(isVoided(o.status)) return;
+      const dateStr = o.bdDate || fmtDate(o.reservationAt || o.createdAt) || '未知日期';
+      (o.items || []).forEach(it => {
+        const name = String(it.name || '未命名品項').trim();
+        const qty = Number(it.qty || 1);
+        const amt = (Number(it.basePrice || 0) + Number(it.extraPrice || 0)) * qty;
+        const key = `${dateStr}__${name}`;
+        if(!dayItemMap[key]) dayItemMap[key] = { dateStr, name, qty: 0, amt: 0 };
+        dayItemMap[key].qty += qty;
+        dayItemMap[key].amt += amt;
+      });
+    });
+
+    Object.values(dayItemMap)
+      .sort((a, b) => a.dateStr.localeCompare(b.dateStr) || b.qty - a.qty)
+      .forEach(rec => {
+        rows.push([
+          store.storeName || store.storeId,
+          rec.dateStr,
+          rec.name,
+          rec.qty,
+          rec.amt
+        ]);
+      });
+  });
+
   return rows;
 }
 
